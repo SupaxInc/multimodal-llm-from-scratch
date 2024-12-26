@@ -88,3 +88,24 @@ A longer overview:
    - This pushes the model to understand the relationship between visual and textual content
 
 This contrastive approach helps the model learn meaningful connections between images and text without needing explicit labels for every concept.
+
+---
+
+<br>
+
+**Problem:** How do we tell the model we want one item in each row/column (brighter cells) to be maximized while minimizing all the others?
+
+**Answer:** The use of loss functions!
+
+#### Loss Functions
+
+To ensure that all matching dot products (brighter cells) have a maximized score as opposed to the non-matched dot products (lighter cells), we use something called loss functions. In our case, we could use the loss function **cross-entropy loss**.
+
+To understand why cross-entropy loss is used, we need to first know how language models are trained. When training LLM's it is done using **next token prediction task**.
+
+Lets say we have a sentence "I am very into", the LLM will produce a series of embeddings which are then converted into logits. logits are a vector that tells what is the score that the language model has assigned to what the next token should be amongst the tokens in the library. In the library, if there are words such as "fashion", "games", or "sports". If we want the sentence "I am very into fashion" then we would then use cross entropy loss to ensure that the highest score would be "fashion" so that it could be the next token in the sentence. To do this, cross entropy loss converts the vectors into a distribution with the softmax function then we compare with the label and we force the output to be equal to the label (where fashion is classified as a 1 and other tokens are 0). 
+
+This is very similar to what is happening in the similarity matrix above. We can force each column and rows in the similarity matrix where the brighter cells (matched dot products) should be the highest value and all the other numbers should have a low value. 
+
+*show example pseudo code here from the CLIP paper on how to implement the CLIP training with contrastive loss and comments of how it works based on what we have talked about already*
+
