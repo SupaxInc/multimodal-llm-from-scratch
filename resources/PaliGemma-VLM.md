@@ -61,3 +61,30 @@ The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
     ```
 
 PaliGemma is **ViT-based** rather than CNN-based.
+
+---
+
+#### Similarity Matrix
+The grid in the center represents how well each image feature matches with each text feature. Essentially
+the corresponding text embedding paired with the image embedding's dot product should have a high value (the blue squares). 
+(e.g. I1 * T1)
+
+A longer overview: 
+1. Matrix Structure
+   - Rows: Image features (I₁, I₂, I₃, ..., Iₙ)
+   - Columns: Text features (T₁, T₂, T₃, ..., Tₙ)
+   - Each cell (Iᵢ·Tⱼ): Similarity score between an image feature and text feature
+
+2. How it Works
+   - Higher scores (brighter cells) = stronger matches
+   - Lower scores (lighter cells) = weaker matches
+   - During training, the model learns to:
+     - Maximize scores for matching image-text pairs
+     - Minimize scores for non-matching pairs
+
+3. Training Objective
+   - The model wants matching pairs (like a dog photo with "aussie pup" text) to have high similarity
+   - Non-matching pairs (like a dog photo with "red car" text) should have low similarity
+   - This pushes the model to understand the relationship between visual and textual content
+
+This contrastive approach helps the model learn meaningful connections between images and text without needing explicit labels for every concept.
