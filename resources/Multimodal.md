@@ -46,7 +46,9 @@ The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
     ↓
     Transformer encoder layers process patch relationships
     ↓
-    [CLS] token captures global image representation
+    Image embeddings (I₁, I₂, I₃, ..., Iₙ)
+    ↓
+    Paired with text embeddings to form similarity matrix
     ```
 
 3. For CNN-based
