@@ -76,8 +76,8 @@ A longer overview:
    - Each cell (Iᵢ·Tⱼ): Similarity score between an image feature and text feature
 
 2. How it Works
-   - Higher scores (brighter cells) = stronger matches
-   - Lower scores (lighter cells) = weaker matches
+   - Higher scores (brighter cells) = stronger matches (e.g. I₁ * T₁)
+   - Lower scores (lighter cells) = weaker matches (e.g. I₁ * T₂)
    - During training, the model learns to:
      - Maximize scores for matching image-text pairs
      - Minimize scores for non-matching pairs
