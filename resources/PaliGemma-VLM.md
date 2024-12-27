@@ -141,6 +141,8 @@ To train CLIP effectively, we use **cross-entropy loss**. To understand why this
    - All other values should be low (non-matching pairs)
    - Cross-entropy loss helps achieve this pattern
 
+---
+
 #### CLIP Training Implementation
 
 Here's an example of how the contrastive learning is implemented:
