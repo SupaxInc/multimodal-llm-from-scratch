@@ -31,6 +31,8 @@ The text encoder in CLIP typically uses a Transformer-based architecture (simila
 
 ---
 
+<br>
+
 #### Image Encoder
 The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
 1. Image Preprocessing
@@ -63,6 +65,8 @@ The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
 PaliGemma is **ViT-based** rather than CNN-based.
 
 ---
+
+<br>
 
 #### Similarity Matrix
 The grid in the center represents how well each image feature matches with each text feature. Essentially
@@ -97,6 +101,10 @@ This contrastive approach helps the model learn meaningful connections between i
 
 **Answer:** We use cross-entropy loss!
 
+---
+
+<br>
+
 #### Training with Loss Functions
 
 To train CLIP effectively, we use **cross-entropy loss**. To understand why this works well, let's first look at how language models are typically trained:
@@ -118,7 +126,7 @@ To train CLIP effectively, we use **cross-entropy loss**. To understand why this
        # ... (thousands more words with scores)
    }
    
-   # After softmax conversion to probabilities
+   # After softmax conversion to probabilities distribution
    probabilities = {
        "fashion": 0.65,  # 65% confidence
        "games": 0.15,    # 15% confidence
@@ -139,9 +147,48 @@ To train CLIP effectively, we use **cross-entropy loss**. To understand why this
    - Instead of predicting next words like above, we're matching images and text instead
    - Each row/column in our similarity matrix needs one high value (matching pair dot products)
    - All other values should be low (non-matching pairs)
-   - Cross-entropy loss helps achieve this pattern
+
+   Let's look at a small example with 3 images and 3 text pairs:
+
+   **Step 1: Raw Similarity Scores**
+   - When I₁ (dog photo) is compared with:
+     - T₁ (text "aussie pup"): score 0.9 ✓
+     - T₂ (text "red car"): score 0.3 ✗
+     - T₃ (text "blue sky"): score 0.2 ✗
+
+   - When I₂ (car photo) is compared with:
+     - T₁ (text "aussie pup"): score 0.2 ✗
+     - T₂ (text "red car"): score 0.8 ✓
+     - T₃ (text "blue sky"): score 0.3 ✗
+
+   - When I₃ (sky photo) is compared with:
+     - T₁ (text "aussie pup"): score 0.1 ✗
+     - T₂ (text "red car"): score 0.2 ✗
+     - T₃ (text "blue sky"): score 0.95 ✓
+
+   **Step 2: After Softmax (Image → Text Direction)**
+   - For I₁ (dog photo):
+     - T₁: 65% probability ✓ (want this to be 100%)
+     - T₂: 20% probability ✗ (want this to be 0%)
+     - T₃: 15% probability ✗ (want this to be 0%)
+
+   **Step 3: After Softmax (Text → Image Direction)**
+   - For T₁ (text "aussie pup"):
+     - I₁: 70% probability ✓ (want this to be 100%)
+     - I₂: 20% probability ✗ (want this to be 0%)
+     - I₃: 10% probability ✗ (want this to be 0%)
+
+   Cross-entropy loss then:
+   - Makes correct pairs (marked with ✓) have higher probability
+   - Makes incorrect pairs (marked with ✗) have lower probability
+   - Does this in both directions (image→text and text→image)
+   - Combines both directions for balanced training
+
+The actual code implementation of this process is shown in the "CLIP Training Implementation" section below.
 
 ---
+
+<br>
 
 #### CLIP Training Implementation
 
