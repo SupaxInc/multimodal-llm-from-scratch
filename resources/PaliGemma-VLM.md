@@ -93,9 +93,9 @@ This contrastive approach helps the model learn meaningful connections between i
 
 <br>
 
-**Problem:** How do we train the model to maximize similarity scores for matching image-text pairs while minimizing scores for non-matching pairs?
+**Problem:** How do we train the model to maximize similarity scores for matching image-text pairs (brighter cells) while minimizing scores for non-matching pairs (lighter cells)?
 
-**Answer:** Through carefully designed loss functions!
+**Answer:** We use cross-entropy loss!
 
 #### Training with Loss Functions
 
@@ -145,7 +145,7 @@ To train CLIP effectively, we use **cross-entropy loss**. To understand why this
 
 #### CLIP Training Implementation
 
-Here's an example of how the contrastive learning is implemented:
+Here's an example of how the contrastive learning is implemented based on the CLIP diagram above:
 
 ```python
 # Based on official CLIP paper implementation
