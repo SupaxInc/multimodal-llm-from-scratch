@@ -93,19 +93,110 @@ This contrastive approach helps the model learn meaningful connections between i
 
 <br>
 
-**Problem:** How do we tell the model we want one item in each row/column (brighter cells) to be maximized while minimizing all the others?
+**Problem:** How do we train the model to maximize similarity scores for matching image-text pairs while minimizing scores for non-matching pairs?
 
-**Answer:** The use of loss functions!
+**Answer:** Through carefully designed loss functions!
 
-#### Loss Functions
+#### Training with Loss Functions
 
-To ensure that all matching dot products (brighter cells) have a maximized score as opposed to the non-matched dot products (lighter cells), we use something called loss functions. In our case, we could use the loss function **cross-entropy loss**.
+To train CLIP effectively, we use **cross-entropy loss**. To understand why this works well, let's first look at how language models are typically trained:
 
-To understand why cross-entropy loss is used, we need to first know how language models are trained. When training LLM's it is done using **next token prediction task**.
+1. **Language Model Training Example**
+   - Given a sentence: "I am very into ___"
+   - Using Next Token Prediction Task
+   - The model produces embeddings → converts to logits (raw scores before softmax)
+   
+   Example logits output might look like:
+   ```python
+   # Raw logit scores for possible next words
+   logits = {
+       "fashion": 5.2,   # Highest score
+       "games": 3.1,
+       "sports": 2.8,
+       "coding": 1.9,
+       "music": 1.7
+       # ... (thousands more words with scores)
+   }
+   
+   # After softmax conversion to probabilities
+   probabilities = {
+       "fashion": 0.65,  # 65% confidence
+       "games": 0.15,    # 15% confidence
+       "sports": 0.12,   # 12% confidence
+       "coding": 0.05,   # 5% confidence
+       "music": 0.03     # 3% confidence
+       # ... (all probabilities sum to 1)
+   }
+   ```
+   
+   - Logits are the raw scores before probability conversion
+   - Cross-entropy loss helps by:
+     - Converting these raw logits into probabilities using softmax
+     - Pushing the probability of correct word ("fashion") towards 1
+     - Pushing other probabilities towards 0
 
-Lets say we have a sentence "I am very into", the LLM will produce a series of embeddings which are then converted into logits. logits are a vector that tells what is the score that the language model has assigned to what the next token should be amongst the tokens in the library. In the library, if there are words such as "fashion", "games", or "sports". If we want the sentence "I am very into fashion" then we would then use cross entropy loss to ensure that the highest score would be "fashion" so that it could be the next token in the sentence. To do this, cross entropy loss converts the vectors into a distribution with the softmax function then we compare with the label and we force the output to be equal to the label (where fashion is classified as a 1 and other tokens are 0). 
+2. **Applying This to CLIP**
+   - Instead of predicting next words like above, we're matching images and text instead
+   - Each row/column in our similarity matrix needs one high value (matching pair dot products)
+   - All other values should be low (non-matching pairs)
+   - Cross-entropy loss helps achieve this pattern
 
-This is very similar to what is happening in the similarity matrix above. We can force each column and rows in the similarity matrix where the brighter cells (matched dot products) should be the highest value and all the other numbers should have a low value. 
+#### CLIP Training Implementation
 
-*show example pseudo code here from the CLIP paper on how to implement the CLIP training with contrastive loss and comments of how it works based on what we have talked about already*
+Here's an example of how the contrastive learning is implemented:
+
+```python
+# Based on official CLIP paper implementation
+def clip_training(image_encoder, text_encoder, images, texts, temperature=0.07):
+    # Step 1: Encode images and text through their respective encoders (purple and green sections in diagram)
+    image_features = image_encoder(images)  # [batch_size, feature_dim] -> Creates I₁, I₂, I₃, ..., Iₙ
+    text_features = text_encoder(texts)     # [batch_size, feature_dim] -> Creates T₁, T₂, T₃, ..., Tₙ
+    
+    # Step 2: Normalize features to unit length (helps with dot product similarity)
+    # This ensures all similarity scores are between -1 and 1
+    image_features = image_features / image_features.norm(dim=1, keepdim=True)
+    text_features = text_features / text_features.norm(dim=1, keepdim=True)
+    
+    # Step 3: Create the similarity matrix shown in the center of the diagram
+    # image_features @ text_features.t() computes all possible I·T dot products
+    # This creates the grid where each cell is Iᵢ·Tⱼ
+    logits = (image_features @ text_features.t()) / temperature
+    
+    # Step 4: Set up the ground truth - we want the diagonal to be highest
+    # In the diagram, this means:
+    # - The blue squares should have high values (matching pairs)
+    # - All other squares should have low values
+    labels = torch.arange(len(images))
+    
+    # Step 5: Compute bidirectional loss
+    # For each row (image): want I₁·T₁ to be highest in row 1, I₂·T₂ in row 2, etc.
+    image_loss = cross_entropy_loss(logits, labels)
+    # For each column (text): want I₁·T₁ to be highest in column 1, I₂·T₂ in column 2, etc.
+    text_loss = cross_entropy_loss(logits.t(), labels)
+    
+    # Step 6: Combine losses symmetrically
+    # This ensures both modalities are trained equally
+    loss = (image_loss + text_loss) / 2
+    
+    return loss
+
+# The training process aims to:
+# 1. Maximize values in the blue squares (like I₁·T₁, I₂·T₂, etc.)
+#    - These are the matching pairs shown in the diagram
+# 2. Minimize values everywhere else
+#    - The non-blue squares represent incorrect pairings
+# 
+# Temperature controls contrast in similarity scores:
+# - Lower temperature (e.g., 0.07) = sharper contrast between matches/non-matches
+# - Higher temperature = softer, more gradual distinctions
+```
+
+This implementation:
+1. Processes batches of image-text pairs
+2. Creates normalized embeddings in the same space
+3. Computes similarity scores between all possible pairs
+4. Uses cross-entropy loss to push matching pairs together
+5. While pushing non-matching pairs apart in the embedding space
+
+The temperature parameter helps control how "strict" the model is in its matching - lower values make it more certain about its choices, while higher values make it more flexible.
 
