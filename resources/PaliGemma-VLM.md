@@ -29,9 +29,9 @@ The text encoder in CLIP typically uses a Transformer-based architecture (simila
     Final text embedding
     ```
 
----
-
 <br>
+
+---
 
 #### Image Encoder
 The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
@@ -64,9 +64,9 @@ The image encoder typically uses a Vision Transformer (ViT) or CNN architecture:
 
 PaliGemma is **ViT-based** rather than CNN-based.
 
----
-
 <br>
+
+---
 
 #### Similarity Matrix
 The grid in the center represents how well each image feature matches with each text feature. Essentially
@@ -93,17 +93,17 @@ A longer overview:
 
 This contrastive approach helps the model learn meaningful connections between images and text without needing explicit labels for every concept.
 
----
-
 <br>
+
+---
 
 **Problem:** How do we train the model to maximize similarity scores for matching image-text pairs (brighter cells) while minimizing scores for non-matching pairs (lighter cells)?
 
 **Answer:** We use cross-entropy loss!
 
----
-
 <br>
+
+---
 
 #### Training with Loss Functions
 
@@ -186,9 +186,9 @@ To train CLIP effectively, we use **cross-entropy loss**. To understand why this
 
 The actual code implementation of this process is shown in the "CLIP Training Implementation" section below.
 
----
-
 <br>
+
+---
 
 #### CLIP Training Implementation
 
@@ -249,3 +249,83 @@ This implementation:
 
 The temperature parameter helps control how "strict" the model is in its matching - lower values make it more certain about its choices, while higher values make it more flexible.
 
+<br>
+
+---
+
+<br>
+
+### What is the problem with CLIP?
+
+Using cross-entropy loss is a problem with CLIP due to numerical stability issues with the softmax function. Let's break this down:
+
+#### The Softmax Function
+
+The softmax function converts raw logits into a probability distribution. For input vector x:
+
+$$ \text{softmax}(x_i) = \frac{e^{x_i}}{\sum_{j=1}^n e^{x_j}} $$
+
+Where:
+- $x_i$ is the current logit (similarity score)
+- $e^x$ is the exponential function (e ≈ 2.71828)
+- $\sum_{j=1}^n e^{x_j}$ is the sum of all exponentials in the sequence
+
+<br>
+
+**Problem: Exponential Growth**
+- When x is large, exp(x) grows extremely fast
+- For example:
+  - exp(10) ≈ 22,026
+  - exp(50) ≈ 5.18 × 10²¹
+  - exp(100) ≈ 2.69 × 10⁴³
+- A 32-bit float can only represent numbers up to ~3.4 × 10³⁸
+- This means exp(89) is already too large to represent!
+
+<br>
+
+---
+
+#### In CLIP's Context
+
+When computing similarity scores:
+1. Large dot products between embeddings can produce large numbers
+2. These large numbers get exponentially larger through softmax
+3. This can lead to:
+   - Numerical overflow (numbers too large to represent)
+   - Loss of precision
+   - NaN (Not a Number) errors
+
+<br>
+
+---
+
+#### The Solution: Log-Space Calculations
+
+To prevent these issues, we compute softmax in log-space using the "log-sum-exp trick":
+
+$$ \text{log\_softmax}(x_i) = x_i - \log(\sum_{j=1}^n e^{x_j}) $$
+
+Which can be rewritten as:
+
+$$ \text{log\_softmax}(x_i) = x_i - (\max(x) + \log(\sum_{j=1}^n e^{x_j - \max(x)})) $$
+
+Where:
+- $\max(x)$ is subtracted from each input before exponentiation
+- This keeps the exponentials from growing too large
+- The result is mathematically equivalent but numerically stable
+
+**Example:**
+```python
+# Unstable version (can overflow)
+scores = [1000, 1000, 1000]
+exp_scores = [exp(x) for x in scores]       # All overflow!
+softmax = exp_scores / sum(exp_scores)      # NaN results
+
+# Stable version
+max_score = max(scores)                     # = 1000
+shifted_scores = [x - max_score for x in scores]  # All zeros
+exp_scores = [exp(x) for x in shifted_scores]     # All ones
+softmax = exp_scores / sum(exp_scores)            # Works correctly
+```
+
+This is why modern implementations of CLIP use log_softmax instead of regular softmax for numerical stability.
