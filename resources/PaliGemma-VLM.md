@@ -301,31 +301,74 @@ When computing similarity scores:
 
 #### The Solution: Log-Space Calculations
 
-To prevent these issues, we compute softmax in log-space using the "log-sum-exp trick":
+Looking at the similarity matrix in the image, we need to compute stable similarity scores between image features (I₁, I₂, I₃, ..., Iₙ) and text features (T₁, T₂, T₃, ..., Tₙ). To prevent numerical instability:
 
 $$ \text{log\_softmax}(x_i) = x_i - \log(\sum_{j=1}^n e^{x_j}) $$
 
-Which can be rewritten as:
+This first equation:
+- Takes the original similarity score ($x_i$)
+- Subtracts the log of the sum of exponentials
+- Helps avoid overflow by working in log space
+
+We can make this even more stable by rewriting it as:
 
 $$ \text{log\_softmax}(x_i) = x_i - (\max(x) + \log(\sum_{j=1}^n e^{x_j - \max(x)})) $$
 
-Where:
-- $\max(x)$ is subtracted from each input before exponentiation
-- This keeps the exponentials from growing too large
-- The result is mathematically equivalent but numerically stable
+This improved version:
+- First finds the maximum value in the sequence ($\max(x)$)
+- Subtracts this maximum from each score before exponentiating
+- Makes all values ≤ 0 before exp(), preventing overflow
+- Adds back the maximum at the end to maintain correctness
 
-**Example:**
-```python
-# Unstable version (can overflow)
-scores = [1000, 1000, 1000]
-exp_scores = [exp(x) for x in scores]       # All overflow!
-softmax = exp_scores / sum(exp_scores)      # NaN results
+For example, in our similarity matrix:
+- If I₂·T₂ = 100 (maximum score in column T₂)
+- Then we subtract 100 from all scores in that column
+- Now exp(score - 100) will be small and manageable
+- The relative relationships between scores are preserved
 
-# Stable version
-max_score = max(scores)                     # = 1000
-shifted_scores = [x - max_score for x in scores]  # All zeros
-exp_scores = [exp(x) for x in shifted_scores]     # All ones
-softmax = exp_scores / sum(exp_scores)            # Works correctly
-```
+This stabilization is crucial because:
+1. Each row in the matrix needs one high value (matching pair)
+2. Each column needs one high value (matching pair)
+3. All other values should be relatively small
+4. We need to compute this stably for both image→text and text→image directions
 
-This is why modern implementations of CLIP use log_softmax instead of regular softmax for numerical stability.
+<br>
+
+---
+
+#### Computational Challenges in CLIP
+
+Looking at the similarity matrix in the image, CLIP faces significant computational overhead due to its bidirectional nature:
+
+##### Asymmetric Computation Requirements
+
+1. **Row-wise Softmax (Image → Text)**
+   - For each image embedding (I₁, I₂, ..., Iₙ):
+     - Must compute softmax across all text embeddings
+     - Example: For I₃ row, compute softmax over [I₃·T₁, I₃·T₂, I₃·T₃, ..., I₃·Tₙ]
+   - Total: N softmax computations (one per row)
+
+2. **Column-wise Softmax (Text → Image)**
+   - For each text embedding (T₁, T₂, ..., Tₙ):
+     - Must compute softmax across all image embeddings
+     - Example: For T₂ column (purple dotted box), compute softmax over [I₁·T₂, I₂·T₂, I₃·T₂, ..., Iₙ·T₂]
+   - Total: N softmax computations (one per column)
+
+##### Why This Is Expensive
+
+1. **Scaling Issues**
+   - With batch size N, need 2N softmax computations
+   - Each softmax requires:
+     - N exponential operations
+     - N additions for the denominator
+     - N divisions for normalization
+
+2. **Memory Requirements**
+   - Must store full N×N similarity matrix
+   - Keeps all intermediate values for gradient computation
+   - Memory grows quadratically with batch size
+
+3. **Computational Complexity**
+   - Total operations: O(N²) for matrix creation
+   - Plus O(N²) for bidirectional softmax
+   - Makes large batch training challenging
