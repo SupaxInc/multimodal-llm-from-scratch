@@ -385,6 +385,8 @@ Based on the SigLip paper, due to the asymmetry of the softmax loss, normalizati
 
 ##### **Solution** to Computational Challenges: Sigmoid Loss
 
+![sigmoid-loss](sigmoid-loss.png)
+
 One solution to CLIP's computational overhead is replacing cross-entropy loss with sigmoid loss:
 
 ###### Why Replace Cross-Entropy Loss?
@@ -429,4 +431,108 @@ Sigmoid Loss:
 - Easily parallelizable
 ```
 
-This approach trades off some model accuracy for significant computational efficiency, making it more practical for large-scale training.
+This approach trades off some model accuracy for significant computational efficiency, making it more practical for large-scale training. Below is a larger overview of how sigmoid loss works.
+
+<br>
+
+---
+
+##### SigLIP's Sigmoid-based Solution
+
+Looking at the similarity matrix in the image, SigLIP (Sigmoid Loss for Image-Text Pairs) proposes a more efficient approach:
+
+###### How SigLIP Works
+
+1. **Direct Similarity Processing**
+   - For each cell in the similarity matrix (I·T pairs):
+     - I₁·T₁, I₁·T₂, I₁·T₃, ... (first row)
+     - I₂·T₁, I₂·T₂, I₂·T₃, ... (second row)
+     - And so on...
+   - Each similarity score is processed independently through sigmoid
+
+2. **Binary Labels**
+   - Matching pairs (blue squares in diagram):
+     - I₁·T₁ should be 1
+     - I₂·T₂ should be 1
+     - I₃·T₃ should be 1
+   - Non-matching pairs (all other cells):
+     - Should be 0
+     - Example: I₁·T₂, I₁·T₃, I₂·T₁, etc.
+
+3. **Loss Computation**
+   $$ L_{SigLIP} = -\frac{1}{N}\sum_{i=1}^N [\log(\sigma(s_{ii})) + \sum_{j\neq i}\log(1-\sigma(s_{ij}))] $$
+   
+   Where:
+   - $s_{ij}$ is the similarity score between Iᵢ and Tⱼ
+   - $\sigma$ is the sigmoid function
+   - $s_{ii}$ represents matching pairs (diagonal)
+   - $s_{ij}$ (i≠j) represents non-matching pairs
+
+4. **Key Benefits**
+   - No need for row/column normalization
+   - Can process each cell independently
+   - Easily parallelizable
+   - Memory efficient: can process subsets of matrix
+
+5. **Comparison to Original CLIP**
+   - Original CLIP (looking at T₂ column in purple):
+     - Needs entire column to compute softmax
+     - Must normalize across all image pairs
+   - SigLIP:
+     - Can process I₁·T₂, I₂·T₂, I₃·T₂ independently
+     - No need to wait for full column computation
+
+This approach maintains the contrastive learning objective (matching correct image-text pairs) while being computationally more efficient and numerically stable.
+
+<br>
+
+---
+
+##### Example of SigLIP Processing
+
+Let's look at a small 3×3 example from our similarity matrix:
+
+1. **Raw Similarity Scores**
+   ```
+   Similarity Matrix (s_ij):
+   [Dog Image I₁]    [0.8  0.2  0.1]  → [T₁: "aussie pup"]
+   [Car Image I₂]    [0.1  0.9  0.2]  → [T₂: "red car"]
+   [Sky Image I₃]    [0.2  0.1  0.7]  → [T₃: "blue sky"]
+   ```
+
+2. **Apply Sigmoid to Each Score**
+   $$ \sigma(x) = \frac{1}{1 + e^{-x}} $$
+   
+   ```
+   After Sigmoid:
+   [Dog Image I₁]    [0.69  0.45  0.42]  → [T₁: "aussie pup"]
+   [Car Image I₂]    [0.42  0.71  0.45]  → [T₂: "red car"]
+   [Sky Image I₃]    [0.45  0.42  0.67]  → [T₃: "blue sky"]
+   ```
+
+3. **Binary Labels**
+   ```
+   Target Matrix (1 for matches, 0 for non-matches):
+   [Dog Image I₁]    [1  0  0]  → [T₁: "aussie pup"]
+   [Car Image I₂]    [0  1  0]  → [T₂: "red car"]
+   [Sky Image I₃]    [0  0  1]  → [T₃: "blue sky"]
+   ```
+
+4. **Loss Computation**
+   For diagonal elements (matches):
+   - I₁·T₁: -log(0.69)
+   - I₂·T₂: -log(0.71)
+   - I₃·T₃: -log(0.67)
+
+   For off-diagonal elements (non-matches):
+   - I₁·T₂: -log(1 - 0.45)
+   - I₁·T₃: -log(1 - 0.42)
+   etc.
+
+   Final loss is the average of all these terms.
+
+Key Advantages Shown in Example:
+1. Each cell processed independently
+2. No need to normalize rows or columns
+3. Can compute loss for any subset of pairs
+4. Numerically stable (all values between 0 and 1)
