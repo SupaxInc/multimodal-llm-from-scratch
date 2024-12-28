@@ -259,7 +259,9 @@ The temperature parameter helps control how "strict" the model is in its matchin
 
 Using cross-entropy loss is a problem with CLIP due to numerical stability issues with the softmax function. Let's break this down:
 
-#### The Softmax Function
+<br>
+
+#### 1. The Softmax Function
 
 The softmax function converts raw logits into a probability distribution. For input vector x:
 
@@ -285,7 +287,7 @@ Where:
 
 ---
 
-#### In CLIP's Context
+##### In CLIP's Context
 
 When computing similarity scores:
 1. Large dot products between embeddings can produce large numbers
@@ -299,7 +301,7 @@ When computing similarity scores:
 
 ---
 
-#### The Solution: Log-Space Calculations
+##### The Solution: Log-Space Calculations
 
 Looking at the similarity matrix in the image, we need to compute stable similarity scores between image features (I₁, I₂, I₃, ..., Iₙ) and text features (T₁, T₂, T₃, ..., Tₙ). To prevent numerical instability:
 
@@ -334,13 +336,13 @@ This stabilization is crucial because:
 
 <br>
 
----
-
-#### Computational Challenges in CLIP
+#### 2. Computational Challenges in CLIP
 
 Looking at the similarity matrix in the image, CLIP faces significant computational overhead due to its bidirectional nature:
 
 ##### Asymmetric Computation Requirements
+
+Based on the SigLip paper, due to the asymmetry of the softmax loss, normalization is performance twice: accross images and across texts:
 
 1. **Row-wise Softmax (Image → Text)**
    - For each image embedding (I₁, I₂, ..., Iₙ):
@@ -353,6 +355,10 @@ Looking at the similarity matrix in the image, CLIP faces significant computatio
      - Must compute softmax across all image embeddings
      - Example: For T₂ column (purple dotted box), compute softmax over [I₁·T₂, I₂·T₂, I₃·T₂, ..., Iₙ·T₂]
    - Total: N softmax computations (one per column)
+
+<br>
+
+---
 
 ##### Why This Is Expensive
 
@@ -372,3 +378,55 @@ Looking at the similarity matrix in the image, CLIP faces significant computatio
    - Total operations: O(N²) for matrix creation
    - Plus O(N²) for bidirectional softmax
    - Makes large batch training challenging
+
+<br>
+
+---
+
+##### **Solution** to Computational Challenges: Sigmoid Loss
+
+One solution to CLIP's computational overhead is replacing cross-entropy loss with sigmoid loss:
+
+###### Why Replace Cross-Entropy Loss?
+
+1. **Problem with Cross-Entropy**
+   - Requires softmax computation first
+   - As we saw, needs both row-wise and column-wise softmax
+   - Computationally expensive at O(N²)
+   - Memory intensive for large batches
+
+2. **Sigmoid Loss Alternative**
+   - Operates on individual similarity scores
+   - No need for softmax normalization
+   - Can process each I·T pair independently
+   - Reduces memory and computation requirements
+
+###### How Sigmoid Loss Works
+
+Instead of normalizing across rows and columns:
+1. Each similarity score I·T is passed through sigmoid function:
+   $$ \sigma(x) = \frac{1}{1 + e^{-x}} $$
+
+2. Binary cross-entropy is applied to each score:
+   - Matching pairs (diagonal) should output 1
+   - Non-matching pairs should output 0
+
+Benefits:
+- Processes each element independently
+- No need for expensive normalization
+- Memory efficient: can process in smaller chunks
+- Still maintains contrastive learning objective
+
+Comparison of Complexity:
+```
+Cross-Entropy + Softmax:
+- Must process entire N×N matrix at once
+- O(N²) memory and computation
+
+Sigmoid Loss:
+- Can process elements independently
+- O(1) per element
+- Easily parallelizable
+```
+
+This approach trades off some model accuracy for significant computational efficiency, making it more practical for large-scale training.
