@@ -342,7 +342,7 @@ Looking at the similarity matrix in the image, CLIP faces significant computatio
 
 ##### Asymmetric Computation Requirements
 
-Based on the SigLip paper, due to the asymmetry of the softmax loss, normalization is performance twice: accross images and across texts:
+Based on the SigLip paper, due to the asymmetry of the softmax loss, normalization is performed twice: across images and across texts:
 
 1. **Row-wise Softmax (Image → Text)**
    - For each image embedding (I₁, I₂, ..., Iₙ):
