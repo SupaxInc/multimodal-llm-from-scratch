@@ -510,7 +510,7 @@ Let's look at a small 3×3 example from our similarity matrix:
    [Sky Image I₃]    [0.45  0.42  0.67]  → [T₃: "blue sky"]
    ```
 
-3. **Binary Labels**
+3. **Binary Label Classification**
    ```
    Target Matrix (1 for matches, 0 for non-matches):
    [Dog Image I₁]    [1  0  0]  → [T₁: "aussie pup"]
