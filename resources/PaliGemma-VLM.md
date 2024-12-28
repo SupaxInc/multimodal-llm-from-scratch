@@ -1,6 +1,30 @@
-![vision-language-model](vision-language-model-architecture.png)
+# Table of Contents
+- [Table of Contents](#table-of-contents)
+- [Components](#components)
+  - [Contrastive Vision Encoder](#contrastive-vision-encoder)
+    - [What is contrastive learning?](#what-is-contrastive-learning)
+      - [Text Encoder](#text-encoder)
+      - [Image Encoder](#image-encoder)
+      - [Similarity Matrix](#similarity-matrix)
+      - [Training with Loss Functions](#training-with-loss-functions)
+      - [CLIP Training Implementation](#clip-training-implementation)
+    - [What is the problem with CLIP?](#what-is-the-problem-with-clip)
+      - [1. The Softmax Function](#1-the-softmax-function)
+        - [In CLIP's Context](#in-clips-context)
+        - [The Solution: Log-Space Calculations](#the-solution-log-space-calculations)
+      - [2. Computational Challenges in CLIP](#2-computational-challenges-in-clip)
+        - [Asymmetric Computation Requirements](#asymmetric-computation-requirements)
+        - [Why This Is Expensive](#why-this-is-expensive)
+        - [**Solution** to Computational Challenges: Sigmoid Loss](#solution-to-computational-challenges-sigmoid-loss)
+          - [Why Replace Cross-Entropy Loss?](#why-replace-cross-entropy-loss)
+          - [How Sigmoid Loss Works](#how-sigmoid-loss-works)
+        - [SigLIP's Sigmoid-based Solution](#siglips-sigmoid-based-solution)
+          - [How SigLIP Works](#how-siglip-works)
+        - [Example of SigLIP Processing](#example-of-siglip-processing)
 
 # Components
+
+![vision-language-model](vision-language-model-architecture.png)
 
 ## Contrastive Vision Encoder
 
