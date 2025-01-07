@@ -610,7 +610,6 @@ Let's dive deeper into each step:
 
 2. **Embedding Creation (EMBEDDINGS OF PATCHES in diagram)**
    - Each patch is processed through convolution + flatten operation
-   - The diagram shows this as "CONVOLUTION + FLATTEN" arrow
    - This converts each 2D patch into a 1D sequence of numbers
    - Results in sequence of embeddings (shown as 1-16 in bottom row)
    ```python
@@ -667,6 +666,33 @@ Let's dive deeper into each step:
    - Each position (1-16) now contains information from other patches
    - The embeddings maintain spatial relationships but are enriched with context
    - These embeddings can be used for downstream tasks
+   - Unlike language models that process tokens sequentially (word1 → word2 → word3),
+     Vision Transformers process all patches simultaneously:
+     ```
+     Language Model (Sequential):
+     "The" → "cat" → "sits" → "on" → "mat"
+     (Each word depends on previous words)
+     
+     Vision Transformer (Parallel):
+     Patch1 ↔ Patch2 ↔ Patch3 ↔ ... ↔ Patch16
+     (All patches attend to each other simultaneously)
+     ```
+   - Example with a light source in an image:
+     - Consider patches showing a lamp illuminating a room
+     - In the diagram's 4x4 grid, if patch 6 contains a bright lamp:
+       1. Initial patch embedding just sees local brightness
+       2. Through transformer's self-attention (big "TRANSFORMER" box):
+          - Patch 6 (lamp) influences all other patches
+          - Surrounding patches (5,7,2,10) learn light falloff
+          - Distant patches learn shadow patterns
+       3. Final contextualized embeddings (top row) capture:
+          - Local features (brightness, color)
+          - Global context (lighting effects, shadows)
+          - Spatial relationships (light direction, distance)
+   - This parallel processing of all patches enables the model to:
+     - Capture complex spatial relationships
+     - Model long-range dependencies across the image
+     - Learn global visual patterns
 
 The diagram effectively shows the transformation from:
 - 2D spatial image (bottom 4x4 grid)
