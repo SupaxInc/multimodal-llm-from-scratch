@@ -21,6 +21,7 @@
         - [SigLIP's Sigmoid-based Solution](#siglips-sigmoid-based-solution)
           - [How SigLIP Works](#how-siglip-works)
         - [Example of SigLIP Processing](#example-of-siglip-processing)
+    - [Vision Transformer](#vision-transformer)
 
 # Components
 
@@ -560,3 +561,124 @@ Key Advantages Shown in Example:
 2. No need to normalize rows or columns
 3. Can compute loss for any subset of pairs
 4. Numerically stable (all values between 0 and 1)
+
+<br>
+
+---
+
+<br>
+
+### Vision Transformer
+
+Using the article "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale", we will dive deep on how it works for the 
+Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings. 
+
+![vision-transformer-diagram](vision-transformer-diagram.png)
+
+Looking at the diagram, we can see the process flows from bottom to top:
+1. Start with an input IMAGE (4x4 grid shown in diagram)
+2. Transform it into EMBEDDINGS OF PATCHES
+3. Add positional encodings (POS. ENC.)
+4. Process through TRANSFORMER
+5. Output CONTEXTUALIZED EMBEDDINGS
+
+Let's dive deeper into each step:
+
+1. **Image Patching & Convolution**
+   - Starting with the IMAGE in the diagram (4x4 grid at bottom)
+   - The image is divided into non-overlapping patches
+   - In the diagram, we see a 4x4 grid creating 16 patches (numbered 1-16)
+   ```python
+   # Example of patch extraction using convolution
+   class PatchExtractor(nn.Module):
+       def __init__(self, patch_size):
+           super().__init__()
+           self.conv = nn.Conv2d(
+               in_channels=3,  # RGB image
+               out_channels=768,  # Embedding dimension
+               kernel_size=patch_size,
+               stride=patch_size
+           )
+           
+       def forward(self, x):  # x: (B, 3, H, W)
+           # Convert image to patches using convolution
+           patches = self.conv(x)  # (B, 768, H/patch_size, W/patch_size)
+           # Reshape to sequence of patches
+           patches = patches.flatten(2).transpose(1, 2)  # (B, N, 768)
+           return patches
+   ```
+
+2. **Embedding Creation (EMBEDDINGS OF PATCHES in diagram)**
+   - Each patch is processed through convolution + flatten operation
+   - The diagram shows this as "CONVOLUTION + FLATTEN" arrow
+   - This converts each 2D patch into a 1D sequence of numbers
+   - Results in sequence of embeddings (shown as 1-16 in bottom row)
+   ```python
+   # Converting patches to embeddings
+   patch_dim = patch_size * patch_size * 3  # 16x16x3 = 768 for 16x16 patches
+   embedding_dim = 768
+   patch_to_embedding = nn.Linear(patch_dim, embedding_dim)
+   ```
+
+3. **Position Encoding Addition (POS. ENC. in diagram)**
+   - The diagram shows "POS. ENC." row with numbers 1-16
+   - These are learned position encodings
+   - Added to patch embeddings (shown by "+ ADD" in diagram)
+   ```python
+   class PositionalEncoding(nn.Module):
+       def __init__(self, d_model, max_patches):
+           super().__init__()
+           # Create learnable position embeddings
+           self.pos_embedding = nn.Parameter(
+               torch.randn(1, max_patches, d_model)
+           )
+           
+       def forward(self, x):
+           # x: patch embeddings (B, N, D)
+           return x + self.pos_embedding  # Add positional information
+   ```
+
+4. **Transformer Processing**
+   - The large "TRANSFORMER" box in diagram processes the sequence
+   - Each patch can attend to all other patches
+   - Uses standard transformer encoder architecture with modifications:
+   ```python
+   class TransformerEncoder(nn.Module):
+       def __init__(self, dim, depth, heads):
+           super().__init__()
+           self.layers = nn.ModuleList([])
+           for _ in range(depth):
+               self.layers.append(nn.ModuleList([
+                   PreNorm(dim, SelfAttention(dim, heads)),
+                   PreNorm(dim, FeedForward(dim))
+               ]))
+           
+       def forward(self, x):
+           # x: sequence of patch embeddings + positions
+           for attn, ff in self.layers:
+               # Self-attention allows patches to interact
+               x = attn(x) + x  # Residual connection
+               x = ff(x) + x    # MLP processing
+           return x
+   ```
+
+5. **Final Contextualized Embeddings**
+   - Output shown at top of diagram as "CONTEXTUALIZED EMBEDDINGS"
+   - Each position (1-16) now contains information from other patches
+   - The embeddings maintain spatial relationships but are enriched with context
+   - These embeddings can be used for downstream tasks
+
+The diagram effectively shows the transformation from:
+- 2D spatial image (bottom 4x4 grid)
+- To 1D sequence of patch embeddings (EMBEDDINGS OF PATCHES)
+- Enhanced with position information (POS. ENC.)
+- Processed through transformer for context (TRANSFORMER)
+- Resulting in final contextualized representation (top row)
+
+This process allows the model to:
+1. Break down spatial image data into processable sequences
+2. Maintain spatial relationships through position encodings
+3. Enable global reasoning through transformer's self-attention
+4. Create rich, context-aware representations of image patches
+
+The key innovation shown in the diagram is treating image patches as a sequence, similar to words in text, allowing direct application of transformer architectures to vision tasks.
