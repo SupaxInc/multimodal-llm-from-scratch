@@ -261,6 +261,7 @@ def clip_training(image_encoder, text_encoder, images, texts, temperature=0.07):
 #    - The non-blue squares represent incorrect pairings
 # 
 # Temperature controls contrast in similarity scores:
+# - Control how "strict" the model is in its matching
 # - Lower temperature (e.g., 0.07) = sharper contrast between matches/non-matches
 # - Higher temperature = softer, more gradual distinctions
 ```
@@ -271,8 +272,6 @@ This implementation:
 3. Computes similarity scores between all possible pairs
 4. Uses cross-entropy loss to push matching pairs together
 5. While pushing non-matching pairs apart in the embedding space
-
-The temperature parameter helps control how "strict" the model is in its matching - lower values make it more certain about its choices, while higher values make it more flexible.
 
 <br>
 
@@ -570,7 +569,7 @@ Key Advantages Shown in Example:
 
 ### Vision Transformer
 
-Using the article "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale", we will dive deep on how it works for the 
+Using the article "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale" (https://arxiv.org/abs/2010.11929), we will dive deep on how it works for the 
 Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings. 
 
 ![vision-transformer-diagram](vision-transformer-diagram.png)
@@ -706,5 +705,3 @@ This process allows the model to:
 2. Maintain spatial relationships through position encodings
 3. Enable global reasoning through transformer's self-attention
 4. Create rich, context-aware representations of image patches
-
-The key innovation shown in the diagram is treating image patches as a sequence, similar to words in text, allowing direct application of transformer architectures to vision tasks.
