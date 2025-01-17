@@ -609,7 +609,7 @@ Let's dive deeper into each step:
 
 2. **Embedding Creation (EMBEDDINGS OF PATCHES in diagram)**
    - Each patch is processed through convolution + flatten operation
-   - This converts each 2D patch into a 1D sequence of numbers
+   - This flattens each 2D patch (e.g. 16x16 pixels with 3 RGB channels = 768 values) into a single row vector by concatenating all pixel values in sequence
    - Results in sequence of embeddings (shown as 1-16 in bottom row)
    ```python
    # Converting patches to embeddings
@@ -620,8 +620,10 @@ Let's dive deeper into each step:
 
 3. **Position Encoding Addition (POS. ENC. in diagram)**
    - The diagram shows "POS. ENC." row with numbers 1-16
-   - These are learned position encodings
-   - Added to patch embeddings (shown by "+ ADD" in diagram)
+   - Position encodings are vectors that encode the spatial location of each patch
+   - When added to patch embeddings, they help the transformer understand where each patch was located in the original image
+   - Without position encodings, the transformer would lose all spatial information since patches are processed as a flat sequence
+   - The addition is element-wise: each position encoding vector is added to its corresponding patch embedding vector
    ```python
    class PositionalEncoding(nn.Module):
        def __init__(self, d_model, max_patches):
@@ -638,7 +640,12 @@ Let's dive deeper into each step:
 
 4. **Transformer Processing**
    - The large "TRANSFORMER" box in diagram processes the sequence
-   - Each patch can attend to all other patches
+   - Each patch embedding can interact with and incorporate information from all other patch embeddings through self-attention:
+     - For example, if patch 1 shows part of a dog's ear and patch 8 shows part of the tail:
+       - The self-attention mechanism allows patch 1 to look at patch 8 and all other patches
+       - This helps patch 1's embedding understand it's part of a larger dog shape
+       - Similarly, patch 8 can look back at patch 1 and other patches
+     - This all-to-all interaction between patches is what the large "TRANSFORMER" box represents
    - Uses standard transformer encoder architecture with modifications:
    ```python
    class TransformerEncoder(nn.Module):
