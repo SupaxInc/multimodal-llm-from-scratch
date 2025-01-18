@@ -574,7 +574,10 @@ Contrastive Vision Encoder. The transformer model is a sequence-to-sequence mode
 
 ![vision-transformer-diagram](vision-transformer-diagram.png)
 
-Looking at the diagram, we can see the process flows from bottom to top:
+What the transformer looks like: <br>
+![transformer_architecture](<transformer_architecture.png>)
+
+Looking at the vision transformer diagram, we can see the process flows from bottom to top:
 1. Start with an input IMAGE (4x4 grid shown in diagram)
 2. Transform it into EMBEDDINGS OF PATCHES
 3. Add positional encodings (POS. ENC.)
