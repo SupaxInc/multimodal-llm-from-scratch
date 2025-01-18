@@ -90,7 +90,7 @@ class SiglipVisionEmbeddings(nn.Module):
         # Create learnable position embeddings:
         # - One embedding vector for each patch position
         # - Each position embedding has same dimension as patch embeddings
-        # - These help model understand spatial relationships between patches
+        # - These help model understand spatial relationships between patches when trained
         self.position_embedding = nn.Embedding(self.num_positions, self.embed_dim)
         # Create fixed position IDs for each patch:
         # - torch.arange(self.num_positions): creates tensor [0, 1, ..., num_positions-1]
