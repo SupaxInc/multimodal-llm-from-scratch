@@ -119,12 +119,14 @@ class SiglipVisionEmbeddings(nn.Module):
         # Input shape: [B, C, H, W]
         _, _, height, width = pixel_values.shape
 
+        # * From diagram: IMAGE → EMBEDDINGS OF PATCHES section (convolution part)
         # Extract patch embeddings via convolution
         # Convolve the patch_size kernel over the image with no overlapping patches
         # [B, C, H, W] -> [B, embed_dim, num_patches_h, num_patches_w]
         # where num_patches_h = Height // patch_size, num_patches_w = Width // patch_size
         patch_embeds = self.patch_embedding(pixel_values)
 
+        # * From diagram: IMAGE → EMBEDDINGS OF PATCHES section (flatten part)
         # Flatten spatial dimensions (num_patches_h, num_patches_w) into sequence of patches
         # [B, embed_dim, num_patches_h, num_patches_w] -> [B, embed_dim, num_patches]
         # where num_patches = num_patches_h * num_patches_w
@@ -134,12 +136,14 @@ class SiglipVisionEmbeddings(nn.Module):
         # [B, embed_dim, num_patches] -> [B, num_patches, embed_dim]
         embeddings = embeddings.transpose(1, 2)
 
+        # * From diagram: POS. ENC. (LEARNED) section + EMBEDDINGS OF PATCHES section
         # Add positional embeddings to provide spatial information
         # position_ids shape: [1, num_patches]
         # position_embedding output: [num_patches, embed_dim]
         # Final shape remains: [B, num_patches, embed_dim]
         embeddings = embeddings + self.position_embedding(self.position_ids)
         
+        # * From diagram: Output feeds into TRANSFORMER section
         # [B, num_patches, embed_dim]
         return embeddings
 
