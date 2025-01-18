@@ -63,14 +63,14 @@ class SiglipVisionEmbeddings(nn.Module):
 
         # * From diagram: IMAGE → EMBEDDINGS OF PATCHES
         # The bottom layer showing image being split into numbered patches (1-16)
-        # Convolutional layer that serves as patch embedder:
+        # Convolutional layer that serves as patch embedder to extract embeddings:
         # - Input: Raw image of shape (batch_size, channels=3, height=224, width=224)
         # - The conv2d operation implicitly splits image into patches and projects each patch
         self.patch_embedding = nn.Conv2d(
             in_channels=config.num_channels,  # Usually 3 for RGB images
             out_channels=self.embed_dim,      # Project each patch to embed_dim dimensions
             kernel_size=self.patch_size,      # Size of each patch (e.g., 16x16)
-            stride=self.patch_size,           # Non-overlapping patches
+            stride=self.patch_size,           # Non-overlapping strides as its same size as kernel size
             padding="valid",                  # No padding, only complete patches
         )
 
@@ -84,7 +84,7 @@ class SiglipVisionEmbeddings(nn.Module):
         # - The (image_size // patch_size) gives number of patches in one dimension
         # - Square it to get total patches in 2D grid
         self.num_patches = (self.image_size // self.patch_size) ** 2
-        self.num_positions = self.num_patches
+        self.num_positions = self.num_patches # Number of position encodings
 
         # * From diagram: POS. ENC. row showing position numbers 1-16
         # Create learnable position embeddings:
@@ -102,18 +102,46 @@ class SiglipVisionEmbeddings(nn.Module):
             persistent=False,  # Don't save in state_dict as these are deterministic
         )
 
-    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """Convert images to patch embeddings with position encoding.
+    def forward(self, pixel_values: torch.FloatTensor) -> torch.Tensor:
+        """Process input images into patch embeddings with positional encoding.
         
         Args:
-            pixel_values: Tensor of shape (batch_size, channels, height, width)
-                        For standard RGB images: (B, 3, 224, 224)
-        
+            pixel_values: Input images [batch_size, channels, height, width]
+            
         Returns:
-            Tensor of shape (batch_size, num_patches, embed_dim)
-            For 224x224 images with 16x16 patches: (B, 196, embed_dim)
+            embeddings: Patch embeddings with position encoding [batch_size, num_patches, embed_dim]
+            
+        Processing steps:
+            1. Extract patches via convolution
+            2. Reshape patches into sequence
+            3. Add positional embeddings
         """
-        # Add this method implementation
+        # Input shape: [B, C, H, W]
+        _, _, height, width = pixel_values.shape
+
+        # Extract patch embeddings via convolution
+        # Convolve the patch_size kernel over the image with no overlapping patches
+        # [B, C, H, W] -> [B, embed_dim, num_patches_h, num_patches_w]
+        # where num_patches_h = Height // patch_size, num_patches_w = Width // patch_size
+        patch_embeds = self.patch_embedding(pixel_values)
+
+        # Flatten spatial dimensions (num_patches_h, num_patches_w) into sequence of patches
+        # [B, embed_dim, num_patches_h, num_patches_w] -> [B, embed_dim, num_patches]
+        # where num_patches = num_patches_h * num_patches_w
+        embeddings = patch_embeds.flatten(2)
+        
+        # Transpose to get patches as sequence dimension
+        # [B, embed_dim, num_patches] -> [B, num_patches, embed_dim]
+        embeddings = embeddings.transpose(1, 2)
+
+        # Add positional embeddings to provide spatial information
+        # position_ids shape: [1, num_patches]
+        # position_embedding output: [num_patches, embed_dim]
+        # Final shape remains: [B, num_patches, embed_dim]
+        embeddings = embeddings + self.position_embedding(self.position_ids)
+        
+        # [B, num_patches, embed_dim]
+        return embeddings
 
 class SiglipVisionTransformer(nn.Module):
     """Vision Transformer that processes images through patch embedding, position encoding, and transformer layers.
