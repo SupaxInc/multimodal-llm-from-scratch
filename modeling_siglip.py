@@ -41,14 +41,94 @@ class SiglipVisionConfig:
         self.attention_dropout = attention_dropout
         self.num_image_tokens = num_image_tokens
 
+class SiglipVisionEmbeddings(nn.Module):
+    """Handles the initial processing of images into patch embeddings with position encoding.
+    
+    This implements the bottom two layers of the vision_transformer-diagram.png:
+    1. IMAGE → EMBEDDINGS OF PATCHES: Converts image into fixed-size patches and projects them to embeddings
+       using a convolutional layer (patch_embedding)
+    2. POS. ENC. (LEARNED): Adds learned position embeddings to maintain spatial information
+    
+    The process:
+    1. Input image (e.g. 224x224) is divided into patches (e.g. 16x16)
+    2. Each patch is projected to an embedding vector via convolution
+    3. Position embeddings are added to help the model understand spatial relationships
+    """
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.embed_dim = config.hidden_size
+        self.image_size = config.image_size
+        self.patch_size = config.patch_size
+
+        # * From diagram: IMAGE → EMBEDDINGS OF PATCHES
+        # The bottom layer showing image being split into numbered patches (1-16)
+        # Convolutional layer that serves as patch embedder:
+        # - Input: Raw image of shape (batch_size, channels=3, height=224, width=224)
+        # - The conv2d operation implicitly splits image into patches and projects each patch
+        self.patch_embedding = nn.Conv2d(
+            in_channels=config.num_channels,  # Usually 3 for RGB images
+            out_channels=self.embed_dim,      # Project each patch to embed_dim dimensions
+            kernel_size=self.patch_size,      # Size of each patch (e.g., 16x16)
+            stride=self.patch_size,           # Non-overlapping patches
+            padding="valid",                  # No padding, only complete patches
+        )
+
+        # * From diagram: The 4x4 grid showing 16 total patches
+        # Calculate total number of patches:
+        # For 224x224 image with 16x16 patches:
+        # - Creates a 14x14 grid of patches (224/16 = 14) because:
+        #   - The 224 pixel width is divided into 16-pixel wide patches: 224/16 = 14 patches horizontally
+        #   - The 224 pixel height is divided into 16-pixel tall patches: 224/16 = 14 patches vertically
+        #   - This creates a square grid of 14x14 = 196 total non-overlapping patches
+        # - The (image_size // patch_size) gives number of patches in one dimension
+        # - Square it to get total patches in 2D grid
+        self.num_patches = (self.image_size // self.patch_size) ** 2
+        self.num_positions = self.num_patches
+
+        # * From diagram: POS. ENC. row showing position numbers 1-16
+        # Create learnable position embeddings:
+        # - One embedding vector for each patch position
+        # - Each position embedding has same dimension as patch embeddings
+        # - These help model understand spatial relationships between patches
+        self.position_embedding = nn.Embedding(self.num_positions, self.embed_dim)
+        # Create fixed position IDs for each patch:
+        # - torch.arange(self.num_positions): creates tensor [0, 1, ..., num_positions-1]
+        # - expand((1, -1)): adds batch dimension, making shape (1, num_positions)
+        # - These IDs index into position_embedding to get embeddings for each position
+        self.register_buffer(
+            "position_ids",
+            torch.arange(self.num_positions).expand((1, -1)), 
+            persistent=False,  # Don't save in state_dict as these are deterministic
+        )
+
+    def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
+        """Convert images to patch embeddings with position encoding.
+        
+        Args:
+            pixel_values: Tensor of shape (batch_size, channels, height, width)
+                        For standard RGB images: (B, 3, 224, 224)
+        
+        Returns:
+            Tensor of shape (batch_size, num_patches, embed_dim)
+            For 224x224 images with 16x16 patches: (B, 196, embed_dim)
+        """
+        # Add this method implementation
+
 class SiglipVisionTransformer(nn.Module):
     """Vision Transformer that processes images through patch embedding, position encoding, and transformer layers.
     
-    This implements the architecture shown in vision-transformer-diagram.png, with processing flowing bottom to top:
-    1. Image → Patches via self.embeddings (IMAGE → EMBEDDINGS OF PATCHES in diagram)
-    2. Add position encodings via self.embeddings (POS. ENC. in diagram) 
-    3. Process through transformer encoder (TRANSFORMER box in diagram)
-    4. Output contextualized embeddings (CONTEXTUALIZED EMBEDDINGS in diagram)
+    This implements the complete architecture shown in the diagram, processing from bottom to top:
+    1. IMAGE → EMBEDDINGS OF PATCHES: Convert image into patch embeddings via self.embeddings.patch_embedding
+    2. POS. ENC. (LEARNED): Add position encodings via self.embeddings.position_embedding
+    3. TRANSFORMER: Process through transformer encoder allowing patches to interact via self-attention
+    4. CONTEXTUALIZED EMBEDDINGS: Output final embeddings where each patch has information from all other patches
+    
+    The key insight is that this architecture:
+    - Breaks down images into manageable patches
+    - Converts patches into embeddings that can be processed like text tokens
+    - Uses position encoding to maintain spatial relationships
+    - Allows patches to share information through transformer layers
     """
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
@@ -96,6 +176,14 @@ class SiglipVisionTransformer(nn.Module):
         return last_hidden_state
 
 class SiglipVisionModel(nn.Module):
+    """Main vision model that wraps the Vision Transformer.
+    
+    This is the top-level class that:
+    1. Takes in raw images (IMAGE in diagram)
+    2. Processes them through the Vision Transformer
+    3. Outputs contextualized embeddings (CONTEXTUALIZED EMBEDDINGS in diagram)
+       that can be used for downstream tasks
+    """
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
