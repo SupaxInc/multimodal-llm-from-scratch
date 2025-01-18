@@ -42,27 +42,55 @@ class SiglipVisionConfig:
         self.num_image_tokens = num_image_tokens
 
 class SiglipVisionTransformer(nn.Module):
+    """Vision Transformer that processes images through patch embedding, position encoding, and transformer layers.
+    
+    This implements the architecture shown in vision-transformer-diagram.png, with processing flowing bottom to top:
+    1. Image → Patches via self.embeddings (IMAGE → EMBEDDINGS OF PATCHES in diagram)
+    2. Add position encodings via self.embeddings (POS. ENC. in diagram) 
+    3. Process through transformer encoder (TRANSFORMER box in diagram)
+    4. Output contextualized embeddings (CONTEXTUALIZED EMBEDDINGS in diagram)
+    """
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
         embed_dim = config.hidden_size
 
-        self.embeddings = SiglipVisionEmbeddings(config) # Convolution + flatten + adding positional encoding
-        self.encoder = SiglipEncoder(config) # Run through the Transformer architecture layer encoders
+        # Handles patch extraction, flattening patches to embeddings, and adding position encodings
+        # Maps from raw image pixels to sequence of patch embeddings with position information
+        self.embeddings = SiglipVisionEmbeddings(config)
+        
+        # Transformer encoder that allows patches to interact via self-attention
+        # Each patch embedding can attend to all other patches to build global context
+        self.encoder = SiglipEncoder(config)
+        
+        # Final layer norm for numerical stability of output embeddings
         self.post_layernorm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
     
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        """
+        """Process a batch of images through the Vision Transformer.
+
         Args:
-            pixel_values: Batch of images in shape (B, C=3, H, W)
+            pixel_values: Batch of images in shape (batch_size, channels=3, height, width)
+                        Each image is divided into patches of size patch_size x patch_size
+
+        Returns:
+            torch.Tensor: Contextualized patch embeddings in shape (batch_size, num_patches, embed_dim)
+                         Each patch embedding contains information from other patches via self-attention
+
+        Processing steps (matching diagram):
+            1. Convert images to sequence of patch embeddings via convolution
+            2. Add learned position encodings to maintain spatial information
+            3. Process through transformer layers allowing patches to interact
+            4. Apply final layer normalization
         """
-        # Convert images to embeddings (extracts patches)
-        # (B, C, H, W) -> (B, Num_Patches, Embed_Dim)
+        # Extract patches and create embeddings with position encoding
+        # (B, C, H, W) -> (B, num_patches, embed_dim) 
         hidden_states = self.embeddings(pixel_values)
 
-        # Take the embeddings
+        # Process through transformer encoder - patches attend to each other
         last_hidden_state = self.encoder(inputs_embeds=hidden_states)
 
+        # Final layer normalization
         last_hidden_state = self.post_layernorm(last_hidden_state)
 
         return last_hidden_state
