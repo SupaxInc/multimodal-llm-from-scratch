@@ -26,6 +26,7 @@
   - [Normalization](#normalization)
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
     - [Why Layer Normalization?](#why-layer-normalization)
+    - [The Problem of Covariate Shift](#the-problem-of-covariate-shift)
 
 # Components
 
@@ -781,18 +782,76 @@ The mathematical process:
 2. Normalize: (x - μ) / σ
 3. Apply learnable scale (γ) and shift (β) parameters
 
-```python
-class LayerNorm(nn.Module):
-    def __init__(self, features, eps=1e-6):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(features))
-        self.beta = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.gamma * (x - mean) / (std + self.eps) + self.beta
-```
-
 This normalization process helps ensure that the network can learn effectively regardless of the scale or distribution of its inputs, which is crucial for both the vision and language components of the model.
+
+<br>
+
+---
+
+### The Problem of Covariate Shift
+
+Looking at the diagram, we can see how covariate shift creates training instability:
+
+1. **Input Distribution Changes**:
+   ```
+   Batch 1: x = [1.1, 2.0, 1.5, 2.1]  → output = [1.6, 2.7, 1.1, 3.1]
+   Batch 2: x = [11.3, 21.7, 31.1, 25.9] → output changes drastically!
+   ```
+   - When input features change significantly between batches
+   - Each layer's output distribution shifts dramatically
+   - This cascades through the network
+
+2. **Chain Reaction of Changes**:
+   ```
+   Input Changes → Layer Output Changes → Loss Changes → Gradient Changes → Weight Updates Unstable → Network Learns Slowly
+   ```
+   For example, in our diagram:
+   - If input vector changes from [1.1, 2.0, 1.5, 2.1] to much larger values
+   - L₁'s output will shift from [1.6, 2.7, 1.1, 3.1] to very different values
+   - This affects L₄'s computation and final output
+   - Loss computation becomes unstable
+   - Results in erratic gradient updates
+
+3. **Impact on Training**:
+   - Network has to constantly adapt to new distributions
+   - Learning becomes inefficient and slow
+   - Model might never converge properly
+   ```python
+   # Example of how distribution shift affects each layer
+   class Layer:
+       def forward(self, x):
+           # Distribution of x keeps changing dramatically
+           output = self.weights @ x + self.bias
+           # Output distribution also changes dramatically
+           # Next layer receives unstable input
+           return output
+   ```
+
+4. **Why This Is Particularly Bad for Deep Networks**:
+   - Changes compound through layers:
+     ```
+     Layer 1 shift → Layer 2 bigger shift → Layer 3 even bigger shift → ...
+     ```
+   - In our diagram:
+     - L₁'s output distribution shift
+     - Makes L₄'s task even harder
+     - Each layer amplifies the instability
+
+5. **Solution Through Layer Normalization**:
+   ```python
+   # Before normalization
+   x = [11.3, 21.7, 31.1, 25.9]  # Large, varying values
+   
+   # After normalization
+   mean = 22.5
+   std = 8.6
+   x_norm = [(11.3 - 22.5)/8.6, (21.7 - 22.5)/8.6, ...]
+   # Results in values centered around 0 with unit variance
+   ```
+   
+   This ensures:
+   - Each layer receives inputs with stable statistics
+   - Gradients flow more smoothly
+   - Training can proceed efficiently
+
+By normalizing the activations at each layer, we prevent the cascade of distribution shifts that would otherwise make training difficult or impossible. This is especially important in transformers where we're processing sequences of varying lengths and distributions.
