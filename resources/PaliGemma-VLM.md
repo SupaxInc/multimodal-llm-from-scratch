@@ -721,17 +721,18 @@ This process allows the model to:
 3. Enable global reasoning through transformer's self-attention
 4. Create rich, context-aware representations of image patches
 
----
 
 <br><br>
+
+---
 
 # Random Teachings
 
 ## Normalization
 
-Layer normalization is a crucial technique used in transformers to stabilize and accelerate training. Let's understand how it works with a concrete example:
-
 ### Linear Layer and Layer Normalization Example
+
+Layer normalization is a crucial technique used in transformers to stabilize and accelerate training. Let's understand how it works with a concrete example:
 
 ![layer-normalization-diagram](layer-normalization.png)
 
@@ -789,6 +790,8 @@ This normalization process helps ensure that the network can learn effectively r
 ---
 
 ### The Problem of Covariate Shift
+
+![problem-covariate-shift](problem-covariate-shift.png)
 
 Looking at the diagram, we can see how covariate shift creates training instability:
 
