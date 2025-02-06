@@ -22,6 +22,10 @@
           - [How SigLIP Works](#how-siglip-works)
         - [Example of SigLIP Processing](#example-of-siglip-processing)
     - [Vision Transformer](#vision-transformer)
+- [Random Teachings](#random-teachings)
+  - [Normalization](#normalization)
+    - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
+    - [Why Layer Normalization?](#why-layer-normalization)
 
 # Components
 
@@ -715,3 +719,80 @@ This process allows the model to:
 2. Maintain spatial relationships through position encodings
 3. Enable global reasoning through transformer's self-attention
 4. Create rich, context-aware representations of image patches
+
+---
+
+<br><br>
+
+# Random Teachings
+
+## Normalization
+
+Layer normalization is a crucial technique used in transformers to stabilize and accelerate training. Let's understand how it works with a concrete example:
+
+### Linear Layer and Layer Normalization Example
+
+![layer-normalization-diagram](layer-normalization.png)
+
+Looking at the diagram, we can break down the process into two key parts:
+
+1. **Linear Layer L₁ (Left Side)**:
+   - Input features: [1.1, 2.0, 1.5, 2.1] (in_features = 4)
+   - Output features: [1.6, 2.7, 1.1, 3.1] (out_features = 4)
+   - Each neuron has:
+     - Weight vector (w₁, w₂, w₃, w₄) matching input dimension
+     - Bias term (b)
+   - Operation: output = input · weights + bias
+   ```python
+   # Example of one neuron's computation
+   # For first output 1.6:
+   weights = [w₁₁, w₁₂, w₁₃, w₁₄]  # First neuron's weights
+   output₁ = (1.1×w₁₁ + 2.0×w₁₂ + 1.5×w₁₃ + 2.1×w₁₄) + b₁ = 1.6
+   ```
+
+2. **Linear Layer L₄ (Right Side)**:
+   - Input features: [1.6, 2.7, 1.1, 3.1] (in_features = 4)
+   - Output features: [x', x'] (out_features = 2)
+   - Each neuron processes all 4 input features:
+     ```python
+     # For first output neuron
+     weights₁ = [w₁₁, w₁₂, w₁₃, w₁₄]
+     output₁ = (1.6×w₁₁ + 2.7×w₁₂ + 1.1×w₁₃ + 3.1×w₁₄) + b₁
+     
+     # For second output neuron
+     weights₂ = [w₂₁, w₂₂, w₂₃, w₂₄]
+     output₂ = (1.6×w₂₁ + 2.7×w₂₂ + 1.1×w₂₃ + 3.1×w₂₄) + b₂
+     ```
+
+### Why Layer Normalization?
+
+The purpose of layer normalization is to:
+1. Stabilize the distribution of activations
+2. Reduce internal covariate shift
+3. Allow for faster training
+
+In the context of PaLI-Gemma and vision transformers:
+- Each transformer layer's output is normalized
+- This helps maintain stable gradients through the deep network
+- Particularly important when processing variable-length sequences (like image patches)
+
+The mathematical process:
+1. Calculate mean (μ) and standard deviation (σ) across features
+2. Normalize: (x - μ) / σ
+3. Apply learnable scale (γ) and shift (β) parameters
+
+```python
+class LayerNorm(nn.Module):
+    def __init__(self, features, eps=1e-6):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(features))
+        self.beta = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+```
+
+This normalization process helps ensure that the network can learn effectively regardless of the scale or distribution of its inputs, which is crucial for both the vision and language components of the model.
