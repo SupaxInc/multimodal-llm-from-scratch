@@ -27,6 +27,9 @@
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
     - [Why Layer Normalization?](#why-layer-normalization)
     - [The Problem of Covariate Shift](#the-problem-of-covariate-shift)
+      - [Batch Normalization: A Solution to Covariate Shifts](#batch-normalization-a-solution-to-covariate-shifts)
+      - [Layer Normalization: A Better Solution](#layer-normalization-a-better-solution)
+      - [Key Difference: Normalization Dimensions](#key-difference-normalization-dimensions)
 
 # Components
 
@@ -858,3 +861,166 @@ Looking at the diagram, we can see how covariate shift creates training instabil
    - Training can proceed efficiently
 
 By normalizing the activations at each layer, we prevent the cascade of distribution shifts that would otherwise make training difficult or impossible. This is especially important in transformers where we're processing sequences of varying lengths and distributions.
+
+<br>
+
+---
+
+#### Batch Normalization: A Solution to Covariate Shifts
+
+According to the paper "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift" (Ioffe & Szegedy, 2015), batch normalization was introduced as the first major solution to the covariate shift problem.
+
+![batch-norm-example1](batch-norm-example1.png)
+
+Looking at the diagram with our batch B of images (cat, dog, zebra, etc.), batch normalization works as follows:
+
+1. **Input Structure**:
+   ```
+   Batch B = [
+       cat_features   = [0.8, 0.3, 0.9, ...],  # Feature dimension
+       dog_features   = [0.2, 0.7, 0.4, ...],
+       zebra_features = [0.5, 0.1, 0.6, ...],
+       ...
+   ]
+   ```
+   Each row represents an item (image), and each column represents a feature dimension.
+
+2. **Normalization Process**:
+   For each feature dimension j:
+   ```python
+   # Calculate statistics across batch dimension
+   μⱼ = (1/m) * Σᵢ xᵢⱼ  # mean of feature j across batch
+   σ²ⱼ = (1/m) * Σᵢ (xᵢⱼ - μⱼ)²  # variance of feature j across batch
+   
+   # Normalize each feature
+   x̂ᵢⱼ = (xᵢⱼ - μⱼ) / √(σ²ⱼ + ε)
+   ```
+
+   For example, if we have feature dimension j=1:
+   ```python
+   # Before normalization (feature 1 across batch)
+   x₁ = [0.8,    # from cat
+         0.2,    # from dog
+         0.5]    # from zebra
+   
+   μ₁ = 0.5     # mean
+   σ₁ = 0.3     # std dev
+   
+   # After normalization
+   x̂₁ = [1.0,   # (0.8 - 0.5)/0.3
+        -1.0,    # (0.2 - 0.5)/0.3
+         0.0]    # (0.5 - 0.5)/0.3
+   ```
+
+3. **Why This Helps**:
+   - Different images (cat vs zebra) have very different feature distributions:
+     ```
+     Cat:   High values in light fur regions
+     Zebra: High contrast between black/white stripes
+     ```
+   - After normalization:
+     - All features follow N(0,1) distribution
+     - Model sees consistent statistics regardless of input
+     - Reduces oscillations in gradients and loss
+
+4. **The Problem with Batch Norm**:
+   ```
+   Batch Statistics Mixing:
+   
+   Feature j=1:      Feature j=2:      Feature j=3:
+   cat:    0.8      cat:    0.3      cat:    0.9
+   dog:    0.2  →   dog:    0.7  →   dog:    0.4   → μ, σ
+   zebra:  0.5      zebra:  0.1      zebra:  0.6
+   ↓                ↓                 ↓
+   μ₁, σ₁           μ₂, σ₂            μ₃, σ₃
+   ```
+   - Statistics (μ, σ) depend on other items in batch
+   - So if we have small batches it creates unstable statistics
+   - And if we have different batch compositions, it creates different normalizations
+
+<br>
+
+---
+
+#### Layer Normalization: A Better Solution
+
+Layer normalization improves upon batch normalization by computing statistics independently for each item:
+
+1. **Independent Normalization**:
+   ```python
+   # For each item i (e.g., cat image):
+   μᵢ = (1/d) * Σⱼ xᵢⱼ  # mean across features
+   σ²ᵢ = (1/d) * Σⱼ (xᵢⱼ - μᵢ)²  # variance across features
+   
+   # Normalize each feature of item i
+   x̂ᵢⱼ = (xᵢⱼ - μᵢ) / √(σ²ᵢ + ε)
+   ```
+
+2. **Why It's Better**:
+   ```
+   Layer Norm (each item normalized independently):
+   
+   Cat:   [0.8, 0.3, 0.9] → μ_cat, σ_cat   → normalized_cat
+   Dog:   [0.2, 0.7, 0.4] → μ_dog, σ_dog   → normalized_dog
+   Zebra: [0.5, 0.1, 0.6] → μ_zebra, σ_zebra → normalized_zebra
+   ```
+   - Each item's normalization is independent
+   - No batch size dependency
+   - More stable training
+   - Particularly good for transformers
+
+3. **Mathematical Formulation**:
+   $$ \text{LayerNorm}(x_i) = \gamma \odot \frac{x_i - \mu_i}{\sqrt{\sigma_i^2 + \epsilon}} + \beta $$
+   
+   Where:
+   - $x_i$ is the input vector for item i
+   - $\mu_i$ is the mean of features for item i
+   - $\sigma_i^2$ is the variance of features for item i
+   - $\gamma, \beta$ are learnable parameters
+   - $\epsilon$ is a small constant for numerical stability
+
+This approach has become the standard in transformer architectures because:
+1. It's independent of batch size
+2. Each item's normalization is self-contained
+3. It works well with variable-length sequences
+4. Training is more stable and converges faster
+
+<br>
+
+---
+
+#### Key Difference: Normalization Dimensions
+
+Let's understand the fundamental difference between batch and layer normalization:
+
+1. **Batch Normalization (Along Batch Dimension)**:
+   ```
+   Batch of Images:
+   cat:   [0.8, 0.3, 0.9]  ↓  Calculate stats down this column
+   dog:   [0.2, 0.7, 0.4]  ↓  for each feature separately
+   zebra: [0.5, 0.1, 0.6]  ↓
+   
+   For feature 1: mean([0.8, 0.2, 0.5])
+   For feature 2: mean([0.3, 0.7, 0.1])
+   For feature 3: mean([0.9, 0.4, 0.6])
+   ```
+   - Calculates statistics DOWN each feature column
+   - Each feature gets normalized using other images' values
+   - Problem: Depends on what other images are in the batch
+
+2. **Layer Normalization (Along Feature Dimension)**:
+   ```
+   Single Images:
+   cat:   [0.8, 0.3, 0.9] → Calculate stats across this row
+   dog:   [0.2, 0.7, 0.4] → Calculate stats across this row
+   zebra: [0.5, 0.1, 0.6] → Calculate stats across this row
+   
+   For cat:   mean([0.8, 0.3, 0.9])
+   For dog:   mean([0.2, 0.7, 0.4])
+   For zebra: mean([0.5, 0.1, 0.6])
+   ```
+   - Calculates statistics ACROSS each image's features
+   - Each image normalized independently
+   - Better: No dependency on batch composition
+
+This dimensional difference is why layer normalization is more stable - each item only depends on its own features, not on what else is in the batch.
