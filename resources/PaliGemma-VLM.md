@@ -22,7 +22,7 @@
           - [How SigLIP Works](#how-siglip-works)
         - [Example of SigLIP Processing](#example-of-siglip-processing)
     - [Vision Transformer (SigLip Encoder)](#vision-transformer-siglip-encoder)
-      - [Another View of the SigLip Encoder](#another-view-of-the-siglip-encoder)
+      - [Actual SigLip Encoder Diagram](#actual-siglip-encoder-diagram)
 - [Random Teachings](#random-teachings)
   - [Normalization](#normalization)
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
@@ -579,8 +579,9 @@ Key Advantages Shown in Example:
 ### Vision Transformer (SigLip Encoder)
 
 Using the article "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale" (https://arxiv.org/abs/2010.11929), we will dive deep on how it works for the 
-Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings. 
+Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings.
 
+**NOTE:** See "Actual SigLip Encoder Diagram" below to see the actual diagram for the encoder that contains the connections.
 ![vision-transformer-diagram](vision-transformer-diagram.png)
 
 What the transformer looks like: <br>
@@ -729,7 +730,7 @@ This process allows the model to:
 
 ---
 
-#### Another View of the SigLip Encoder
+#### Actual SigLip Encoder Diagram
 
 ![siglip-encoder](siglip-encoder.png)
 
