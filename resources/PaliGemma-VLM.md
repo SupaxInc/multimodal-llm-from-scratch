@@ -21,7 +21,8 @@
         - [SigLIP's Sigmoid-based Solution](#siglips-sigmoid-based-solution)
           - [How SigLIP Works](#how-siglip-works)
         - [Example of SigLIP Processing](#example-of-siglip-processing)
-    - [Vision Transformer](#vision-transformer)
+    - [Vision Transformer (SigLip Encoder)](#vision-transformer-siglip-encoder)
+      - [Another View of the SigLip Encoder](#another-view-of-the-siglip-encoder)
 - [Random Teachings](#random-teachings)
   - [Normalization](#normalization)
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
@@ -575,7 +576,7 @@ Key Advantages Shown in Example:
 
 <br>
 
-### Vision Transformer
+### Vision Transformer (SigLip Encoder)
 
 Using the article "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale" (https://arxiv.org/abs/2010.11929), we will dive deep on how it works for the 
 Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings. 
@@ -724,10 +725,16 @@ This process allows the model to:
 3. Enable global reasoning through transformer's self-attention
 4. Create rich, context-aware representations of image patches
 
-
-<br><br>
+<br>
 
 ---
+
+#### Another View of the SigLip Encoder
+
+![siglip-encoder](siglip-encoder.png)
+
+
+<br><br>
 
 # Random Teachings
 
