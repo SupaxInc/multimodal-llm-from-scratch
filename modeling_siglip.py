@@ -210,11 +210,6 @@ class SiglipEncoderLayer(nn.Module):
     - mlp: Feed-forward network for additional processing
     - layer_norm2: Pre-normalization before MLP
     
-    The architecture follows the modern pre-norm transformer design where:
-    - Layer normalization is applied before attention and MLP
-    - Residual connections help maintain gradient flow
-    - This design has been shown to be more stable during training
-    
     Looking at siglip-encoder.png:
     - Each encoder layer processes patch embeddings through attention and MLP
     - The "+" symbols represent residual connections
