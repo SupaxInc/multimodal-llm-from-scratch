@@ -734,6 +734,90 @@ This process allows the model to:
 
 ![siglip-encoder](siglip-encoder.png)
 
+The SigLIP encoder diagram shows the detailed architecture of the vision encoder component. Let's break down its key components and their roles:
+
+1. **Input: Patch Embeddings with Positional Encodings**
+   - Bottom of diagram shows input embeddings
+   - Each embedding represents a patch of the image
+   - Position encodings are added to maintain spatial information
+
+2. **Layer Architecture (repeated Nx times)**
+   Each encoder layer contains:
+   
+   a) **First Branch**
+   - Layer Normalization (yellow box)
+   - Self-Attention mechanism
+   - Residual connection (+)
+   
+   b) **Second Branch**
+   - Layer Normalization (yellow box)
+   - MLP (Multi-Layer Perceptron)
+   - Residual connection (+)
+
+3. **Layer Normalization**
+   - Shown as yellow boxes in the diagram
+   - Applied before attention and MLP (pre-norm design)
+   - Helps stabilize training by normalizing activations
+   - Prevents internal covariate shift
+
+4. **Self-Attention**
+   - Allows each patch to attend to all other patches
+   - Computes attention scores between patches
+   - Helps build global understanding of image
+   - Key component for capturing long-range dependencies
+
+5. **MLP (Multi-Layer Perceptron)**
+   - Two-layer feed-forward network
+   - Projects to higher dimension then back
+   - Adds non-linearity through GELU activation
+   - Increases model capacity
+
+   **GELU Activation's Importance:**
+     - **Non-linearity Introduction**
+       - Without GELU, MLP would just be composed linear transformations
+       - GELU enables learning of complex, non-linear patterns
+       - Critical for modeling sophisticated visual relationships
+
+     - **Modern Transformer Choice**
+       - Standard activation in modern transformer architectures
+       - Performs better than traditional ReLU or tanh
+       - Combines benefits of ReLU with smoother gradient properties
+
+     - **Mathematical Properties**
+       - Defined as: GELU(x) = x * Φ(x)
+       - Where Φ(x) is the cumulative distribution function of standard normal
+       - Provides smooth activation with good gradient characteristics
+       - Can be efficiently approximated using tanh-based implementation
+
+     - **Processing Pipeline**
+       ```
+       Input Features → Linear Expansion → GELU → Linear Projection
+       [dim] → [4*dim] → [4*dim] → [dim]
+       ```
+       - First expands feature space for richer representations
+       - Applies non-linear transformation via GELU
+       - Projects back to required dimension
+       - Maintains dimensionality compatibility with residual connections
+
+     - **Training Benefits**
+       - Smooth gradient flow for stable training
+       - Probabilistic interpretation helps with regularization
+       - Better training dynamics in deep transformer architectures
+       - Efficient computation with tanh approximation
+
+6. **Residual Connections**
+   - Shown as "+" in the diagram
+   - Skip connections that add input to output
+   - Help with gradient flow during training
+   - Allow model to preserve low-level features
+
+7. **Design Philosophy**
+   - Pre-norm architecture (LayerNorm before attention/MLP)
+   - Dual processing streams (attention and MLP)
+   - Deep network with repeated layers
+   - Heavy use of residual connections
+
+The key innovation in SigLIP is not in this encoder structure (which follows standard transformer design), but rather in how the embeddings it produces are used in the contrastive learning setup with sigmoid loss.
 
 <br><br>
 

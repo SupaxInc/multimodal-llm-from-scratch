@@ -148,13 +148,46 @@ class SiglipVisionEmbeddings(nn.Module):
         return embeddings
     
 class SiglipMLP(nn.Module):
+    """Multi-Layer Perceptron (MLP) component used in the SigLIP encoder layer.
+    
+    This implements the feed-forward network (FFN) part of each transformer layer, which:
+    1. Projects embeddings to a higher dimension (fc1)
+    2. Applies non-linearity (GELU)
+    3. Projects back to original dimension (fc2)
+    
+    The MLP serves several crucial purposes:
+    - Increases model capacity through higher-dimensional projections
+    - Introduces non-linearity to process complex patterns
+    - Maintains dimensionality through the skip connection in encoder layer
+    
+    Looking at the siglip-encoder.png:
+    - This is the "MLP" box in each encoder layer
+    - Works together with attention to process patch embeddings
+    - Part of the standard transformer architecture pattern:
+      Attention → LayerNorm → MLP → LayerNorm
+    """
     def __init__(self, config):
-        super().__init__
+        super().__init__()
         self.config = config
+        # Project from hidden_size to higher dimension
         self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
+        # Project back to hidden_size for residual connection
         self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
     
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Process embeddings through the MLP.
+        
+        Args:
+            hidden_states: Input embeddings [batch_size, num_patches, embed_dim]
+            
+        Returns:
+            torch.Tensor: Processed embeddings [batch_size, num_patches, embed_dim]
+            
+        The process:
+        1. Project to higher dimension (fc1)
+        2. Apply GELU activation
+        3. Project back to original dimension (fc2)
+        """
         # [B, num_patches, embed_dim] -> [B, num_patches, intermediate_size]
         hidden_states = self.fc1(hidden_states)
         # [B, num_patches, intermediate_size]
@@ -165,8 +198,31 @@ class SiglipMLP(nn.Module):
         return hidden_states
 
 class SiglipEncoderLayer(nn.Module):
+    """Single transformer encoder layer in the SigLIP vision encoder.
+    
+    This implements one complete transformer block as shown in siglip-encoder.png:
+    1. Layer Norm → Self-Attention → Residual Connection
+    2. Layer Norm → MLP → Residual Connection
+    
+    Key components:
+    - self_attn: Multi-head self-attention allowing patches to interact
+    - layer_norm1: Pre-normalization before attention
+    - mlp: Feed-forward network for additional processing
+    - layer_norm2: Pre-normalization before MLP
+    
+    The architecture follows the modern pre-norm transformer design where:
+    - Layer normalization is applied before attention and MLP
+    - Residual connections help maintain gradient flow
+    - This design has been shown to be more stable during training
+    
+    Looking at siglip-encoder.png:
+    - Each encoder layer processes patch embeddings through attention and MLP
+    - The "+" symbols represent residual connections
+    - Layer norms (yellow boxes) stabilize activations
+    - Multiple such layers are stacked to build the full encoder
+    """
     def __init__(self, config: SiglipVisionConfig):
-        super().__init__
+        super().__init__()
         self.embed_dim = config.hidden_size
         self.self_attn = SiglipAttention(config)
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
@@ -174,6 +230,22 @@ class SiglipEncoderLayer(nn.Module):
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Process embeddings through one encoder layer.
+        
+        Args:
+            hidden_states: Input embeddings [batch_size, num_patches, embed_dim]
+            
+        Returns:
+            torch.Tensor: Processed embeddings [batch_size, num_patches, embed_dim]
+            
+        The process (following siglip-encoder.png):
+        1. Store residual for first skip connection
+        2. Layer norm → Self-attention
+        3. Add first residual connection
+        4. Store residual for second skip connection
+        5. Layer norm → MLP
+        6. Add second residual connection
+        """
         # [B, num_patches, embed_dim]
         residual = hidden_states
         # [B, num_patches, embed_dim] -> [B, num_patches, embed_dim]
@@ -181,17 +253,20 @@ class SiglipEncoderLayer(nn.Module):
         # [B, num_patches, embed_dim] -> [B, num_patches, embed_dim]
         hidden_states, _ = self.self_attn(hidden_states=hidden_states)
 
-        # Connecting the residual connection (+) in Siglip Encoder diagram
+        # First residual connection (+) in Siglip Encoder diagram
         # [B, num_patches, embed_dim]
         hidden_states = residual + hidden_states
 
-        # Prepare next residual connection
+        # Prepare second residual connection
         # [B, num_patches, embed_dim]
         residual = hidden_states
         # [B, num_patches, embed_dim] -> [B, num_patches, embed_dim]
         hidden_states = self.layer_norm2(hidden_states)
         # [B, num_patches, embed_dim] -> [B, num_patches, embed_dim]
         hidden_states = self.mlp(hidden_states)
+        
+        # Second residual connection
+        hidden_states = residual + hidden_states
 
         return hidden_states
 
