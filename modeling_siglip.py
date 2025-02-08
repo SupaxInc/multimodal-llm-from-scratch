@@ -147,6 +147,23 @@ class SiglipVisionEmbeddings(nn.Module):
         # [B, num_patches, embed_dim]
         return embeddings
     
+class SiglipMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__
+        self.config = config
+        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
+        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
+    
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # [B, num_patches, embed_dim] -> [B, num_patches, intermediate_size]
+        hidden_states = self.fc1(hidden_states)
+        # [B, num_patches, intermediate_size]
+        hidden_states = nn.functional.gelu(hidden_states, approximate="tanh")
+        # [B, num_patches, intermediate_size] -> [B, num_patches, embed_dim]
+        hidden_states = self.fc2(hidden_states)
+
+        return hidden_states
+
 class SiglipEncoderLayer(nn.Module):
     def __init__(self, config: SiglipVisionConfig):
         super().__init__
