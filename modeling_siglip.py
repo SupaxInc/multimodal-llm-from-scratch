@@ -146,7 +146,48 @@ class SiglipVisionEmbeddings(nn.Module):
         # * From diagram: Output feeds into TRANSFORMER section
         # [B, num_patches, embed_dim]
         return embeddings
+
+class SiglipAttention(nn.Module):
+    """Multi-headed attention from 'Attention is All You Need' paper"""
     
+    def __init__(self, config: SiglipVisionConfig):
+        super().__init__()
+        self.config = config
+        self.embed_dim = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.embed_dim // self.num_heads
+        self.scale = self.head_dim**-0.5 # Equivalent to 1 / sqrt(self.head_dim), formula from paper
+        self.dropout = config.attention_dropout
+
+        # WK Matrix
+        self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)
+        # WV Matrix
+        self.v_proj = nn.Linear(self.embed_dim, self.embed_dim)
+        # WQ Matrix
+        self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)
+        # WO Matrix
+        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
+    
+    def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        # [B, num_patches, embed_dim]
+        batch_size, seq_len, _ = hidden_states.size()
+
+        # Parameter Matrices for query, key, value to transform input sequence
+        # [B, num_patches, embed_dim]
+        query_states = self.q_proj(hidden_states)
+        # [B, num_patches, embed_dim]
+        key_states = self.k_proj(hidden_states)
+        # [B, num_patches, embed_dim]
+        value_states = self.v_proj(hidden_states)
+
+        # Split the tokens to smaller tokens depending on the number of heads
+        # [B, num_heads, num_patches, head_dim]
+        query_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+
+
+
 class SiglipMLP(nn.Module):
     """Multi-Layer Perceptron (MLP) component used in the SigLIP encoder layer.
     
@@ -166,7 +207,7 @@ class SiglipMLP(nn.Module):
     - Part of the standard transformer architecture pattern:
       Attention → LayerNorm → MLP → LayerNorm
     """
-    def __init__(self, config):
+    def __init__(self, config: SiglipVisionConfig):
         super().__init__()
         self.config = config
         # Project from hidden_size to higher dimension
