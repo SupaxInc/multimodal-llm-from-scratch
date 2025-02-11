@@ -31,6 +31,10 @@
       - [Batch Normalization: A Solution to Covariate Shifts](#batch-normalization-a-solution-to-covariate-shifts)
       - [Layer Normalization: A Better Solution](#layer-normalization-a-better-solution)
       - [Key Difference: Normalization Dimensions](#key-difference-normalization-dimensions)
+  - [Multi-Head Attention](#multi-head-attention)
+    - [Vision Transformers: Contextualizing Image Patches](#vision-transformers-contextualizing-image-patches)
+    - [Language Models: Causal Self-Attention](#language-models-causal-self-attention)
+    - [Parallel Training: A Powerful Feature](#parallel-training-a-powerful-feature)
 
 # Components
 
@@ -1116,3 +1120,89 @@ Let's understand the fundamental difference between batch and layer normalizatio
    - Better: No dependency on batch composition
 
 This dimensional difference is why layer normalization is more stable - each item only depends on its own features, not on what else is in the batch.
+
+<br><br>
+
+---
+
+## Multi-Head Attention
+
+![multi-head-attention](multi-head-attention.png)
+
+Multi-head attention is a key component in both Vision Transformers and Language Models, but they use it in slightly different ways. Let's explore both:
+
+### Vision Transformers: Contextualizing Image Patches
+
+In Vision Transformers (top part of diagram):
+- Each row represents a patch extracted from the input image
+- Each patch is a vector with 1024 dimensions, created by flattening a group of pixels
+- Input shape: 4 patches × 1024 dimensions
+- Output maintains same shape: 4 patches × 1024 dimensions
+
+The multi-head attention mechanism contextualizes these patches by allowing each patch to attend to all other patches in the sequence. For example:
+- Patch 1 can look at patches 2, 3, and 4
+- Patch 2 can look at patches 1, 3, and 4
+- And so on...
+
+This creates rich contextual representations where each output patch now contains information about:
+- Its own local features (from the original pixels)
+- Global context (from attending to other patches)
+- Spatial relationships (through position embeddings)
+
+### Language Models: Causal Self-Attention
+
+In Language Models (bottom part of diagram):
+- Input is a sequence of tokens: ["I", "love", "pepperoni", "pizza"]
+- Each token is embedded into a 1024-dimensional vector
+- Input shape: 4 tokens × 1024 dimensions
+- Output maintains same shape: 4 tokens × 1024 dimensions
+
+Key difference: Language models use causal attention (also known as masked self-attention):
+- Each token can only attend to itself and previous tokens
+- This creates an autoregressive property
+- Example in the diagram:
+  - "I" only sees itself
+  - "love" sees ["I", "love"]
+  - "pepperoni" sees ["I", "love", "pepperoni"]
+  - "pizza" sees ["I", "love", "pepperoni", "pizza"]
+
+The output sequence demonstrates this contextualization:
+- First token: "I" (only self-context)
+- Second token: "I love" (includes previous context)
+- Third token: "I love pepperoni" (includes all previous context)
+- Fourth token: "I love pepperoni pizza" (full context)
+
+### Parallel Training: A Powerful Feature
+
+The power of transformer architecture lies in its ability to process sequences in parallel:
+
+1. **Parallel Processing**
+   - Instead of generating one token at a time
+   - All positions are processed simultaneously
+   - Multiple attention heads work in parallel
+   - Each head can focus on different aspects of the sequence
+
+2. **Training Process**
+   ```
+   Input:  ["I", "love", "pepperoni", "pizza"]
+   Labels: ["love", "pepperoni", "pizza", <end>]
+   
+   For each position:
+   - "I" should predict "love"
+   - "I love" should predict "pepperoni"
+   - "I love pepperoni" should predict "pizza"
+   ```
+
+3. **Parallel Loss Calculation**
+   - Loss is computed for all positions simultaneously
+   - Backpropagation updates all weights in parallel
+   - Model learns to predict next tokens based on all previous contexts
+   - This parallel computation is vastly more efficient than sequential processing
+
+4. **Why This Is Powerful**
+   - Training is much faster than sequential models
+   - Can learn complex patterns across different sequence lengths
+   - Multiple attention heads capture different types of relationships
+   - Parallel processing enables training on massive datasets
+
+This parallel nature, combined with the ability to capture long-range dependencies, makes transformers extremely effective for both vision and language tasks, despite their different attention patterns (full attention for vision vs. causal attention for language).
