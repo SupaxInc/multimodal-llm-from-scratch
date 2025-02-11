@@ -1131,6 +1131,8 @@ This dimensional difference is why layer normalization is more stable - each ite
 
 Multi-head attention is a key component in both Vision Transformers and Language Models, but they use it in slightly different ways. Let's explore both:
 
+---
+
 ### Vision Transformers: Contextualizing Image Patches
 
 In Vision Transformers (top part of diagram):
@@ -1171,6 +1173,10 @@ The output sequence demonstrates this contextualization:
 - Second token: "I love" (includes previous context)
 - Third token: "I love pepperoni" (includes all previous context)
 - Fourth token: "I love pepperoni pizza" (full context)
+
+<br>
+
+---
 
 ### Parallel Training: A Powerful Feature
 
