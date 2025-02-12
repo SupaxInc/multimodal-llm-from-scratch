@@ -35,6 +35,11 @@
     - [Vision Transformers: Contextualizing Image Patches](#vision-transformers-contextualizing-image-patches)
     - [Language Models: Causal Self-Attention](#language-models-causal-self-attention)
     - [Parallel Training: A Powerful Feature](#parallel-training-a-powerful-feature)
+    - [How it Works](#how-it-works)
+      - [Step 1: From X to Q, K, V Transformations](#step-1-from-x-to-q-k-v-transformations)
+        - [Matrix Multiplication Process](#matrix-multiplication-process)
+        - [Visualizing the Transformation](#visualizing-the-transformation)
+        - [Importance for Multi-Head Attention](#importance-for-multi-head-attention)
 
 # Components
 
@@ -1212,3 +1217,132 @@ The power of transformer architecture lies in its ability to process sequences i
    - Parallel processing enables training on massive datasets
 
 This parallel nature, combined with the ability to capture long-range dependencies, makes transformers extremely effective for both vision and language tasks, despite their different attention patterns (full attention for vision vs. causal attention for language).
+
+
+### How it Works
+
+#### Step 1: From X to Q, K, V Transformations
+
+![step1-qkv](step1-qkv.png)
+
+The first step in multi-head attention is transforming the input sequence X into three different representations: Query (Q), Key (K), and Value (V) matrices. Looking at the diagram, we can see how this transformation process works through matrix multiplication with learned parameter matrices Wq, Wk, and Wv.
+
+##### Matrix Multiplication Process
+
+Input sequence X has shape (4, 1024):
+- 4 represents sequence length (number of tokens/patches)
+- 1024 represents hidden_size (embedding dimension)
+
+Parameter matrices Wq, Wk, Wv each have shape (1024, 1024):
+- First 1024 matches input embedding dimension
+- Second 1024 is split into 8 heads × 128 dimensions
+- Total size remains 1024 (8 * 128 = 1024)
+
+The matrix multiplication works as follows:
+```
+Input shape:     (4, 1024)
+Parameter shape: (1024, 1024) = (1024, 8 * 128)
+Output shape:    (4, 8, 128)
+
+Why? Inner dimensions cancel out (1024),
+     Outer dimensions remain (4 and 8*128)
+```
+
+---
+
+##### Visualizing the Transformation
+
+Looking at the bottom part of the diagram, we can see a detailed visualization of this process:
+
+1. **Input Sequence (X)**:
+   - Each row represents a token/patch with 1024 dimensions
+   - Shown in the diagram as a 4×1024 matrix
+   - For language models, this could be:
+     ```
+     Row 1: "I"      → [0.1, 0.2, ..., 0.8]  (1024 values)
+     Row 2: "love"   → [0.3, 0.7, ..., 0.4]  (1024 values)
+     Row 3: "pizza"  → [0.5, 0.1, ..., 0.9]  (1024 values)
+     Row 4: "!"      → [0.2, 0.6, ..., 0.3]  (1024 values)
+     ```
+
+2. **Parameter Matrix (Wq/Wk/Wv)**:
+   - The diagram shows how the 1024×1024 matrix is organized
+   - Each row is split into 8 groups (heads)
+   - Each head processes 128 dimensions
+   - Visualized as columns in the diagram:
+     ```
+     Head 1: Processes dimensions 1-128
+     Head 2: Processes dimensions 129-256
+     Head 3: Processes dimensions 257-384
+     ...and so on
+     ```
+
+3. **Output Matrix (Q/K/V)**:
+   - The diagram shows the final shape (4, 8, 128)
+   - Each token now has 8 different representations
+   - Each representation focuses on different aspects:
+     ```
+     Token "bank":
+     Head 1 (dims 1-128):   [0.1, ..., 0.4]  → Financial aspects
+     Head 2 (dims 129-256): [0.7, ..., 0.2]  → Geographic aspects
+     Head 3 (dims 257-384): [0.3, ..., 0.8]  → Action aspects
+     ...and so on
+     ```
+
+##### Importance for Multi-Head Attention
+
+This transformation is crucial because it enables tokens/patches to relate to each other in multiple ways:
+
+1. **Column-wise Processing**:
+   - Each head (column) in the diagram processes a specific subset of dimensions
+   - Looking at the diagram's bottom section:
+     ```
+     Head 1 (Column 1): Processes first 128 dimensions of all tokens
+     ↓
+     Token 1's first 128 dims
+     Token 2's first 128 dims
+     Token 3's first 128 dims
+     Token 4's first 128 dims
+     ```
+
+2. **Parallel Feature Processing**:
+   - The diagram shows how all heads work in parallel
+   - Each head can specialize in different patterns:
+     ```
+     For an image of a cat playing with yarn:
+     Head 1: Focuses on shape features
+     Head 2: Focuses on color patterns
+     Head 3: Focuses on motion aspects
+     Head 4: Focuses on object relationships
+     ```
+
+3. **Rich Token Relationships**:
+   For example, with the sentence "The bank by the river bank":
+   ```
+   Without multi-head:
+   - Single 1024-dim representation
+   - One way to relate "bank" to other words
+   
+   With multi-head (as shown in diagram):
+   Head 1: [Financial context]    → Processes "bank" as institution
+   Head 2: [Geographic context]   → Processes "bank" as riverside
+   Head 3: [Positional context]   → Processes word order
+   Head 4: [Semantic context]     → Processes meaning
+   ...and so on
+   ```
+
+4. **Parallel Processing Benefits**:
+   - Looking at the diagram's structure:
+     ```
+     All heads process simultaneously:
+     Head 1: [128-dim] → Financial aspects
+     Head 2: [128-dim] → Geographic aspects
+     Head 3: [128-dim] → Syntactic aspects
+     Head 4: [128-dim] → Semantic aspects
+     Head 5: [128-dim] → Contextual aspects
+     Head 6: [128-dim] → Relational aspects
+     Head 7: [128-dim] → Temporal aspects
+     Head 8: [128-dim] → Structural aspects
+     ```
+
+This multi-headed approach, as visualized in the diagram, allows the model to process multiple aspects of the input simultaneously, making it more powerful than single-headed attention. Each head can specialize in different types of relationships, leading to richer and more nuanced understanding of the input sequence.
