@@ -1285,6 +1285,7 @@ Looking at the bottom part of the diagram above, we can visualize the matrix mul
 3. **Output Matrix (Q/K/V)**:
    - The output is a matrix where each token is split into multiple subgroups
    - Size of (4, 8, 128): 4 rows split into 8 groups of smaller embeddings
+   - Each head (column) is a sequence 
    - Each smaller embedding is made up of 128 dimensions
    - Each token now has 8 different representations focusing on different aspects:
      ```

@@ -173,15 +173,17 @@ class SiglipAttention(nn.Module):
         batch_size, seq_len, _ = hidden_states.size()
 
         # Parameter Matrices for query, key, value to transform input sequence
-        # [B, num_patches, embed_dim]
+        # [B, num_patches, embed_dim (1024)]
         query_states = self.q_proj(hidden_states)
-        # [B, num_patches, embed_dim]
+        # [B, num_patches, embed_dim (1024)]
         key_states = self.k_proj(hidden_states)
-        # [B, num_patches, embed_dim]
+        # [B, num_patches, embed_dim (1024)]
         value_states = self.v_proj(hidden_states)
 
-        # Split the tokens to smaller tokens depending on the number of heads
-        # [B, num_heads, num_patches, head_dim]
+        # Split the tokens to smaller tokens depending on the number of heads using .view
+        # [B, num_patches, embed_dim] -> [B, num_patches, num_heads (8), head_dim (128)]
+        # Then transposes
+        # [B, num_patches, num_heads (8), head_dim (128)] -> [B, num_heads, num_patches, head_dim (128)]
         query_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         value_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
