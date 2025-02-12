@@ -39,7 +39,7 @@
       - [Step 1: From X to Q, K, V Transformations](#step-1-from-x-to-q-k-v-transformations)
         - [Matrix Multiplication Process](#matrix-multiplication-process)
         - [Visualizing the Transformation](#visualizing-the-transformation)
-        - [Importance for Multi-Head Attention](#importance-for-multi-head-attention)
+        - [Importance of Matrix Multiplication for Multi-Head Attention](#importance-of-matrix-multiplication-for-multi-head-attention)
 
 # Components
 
@@ -1227,6 +1227,8 @@ This parallel nature, combined with the ability to capture long-range dependenci
 
 The first step in multi-head attention is transforming the input sequence X into three different representations: Query (Q), Key (K), and Value (V) matrices. Looking at the diagram, we can see how this transformation process works through matrix multiplication with learned parameter matrices Wq, Wk, and Wv.
 
+---
+
 ##### Matrix Multiplication Process
 
 Input sequence X has shape (4, 1024):
@@ -1248,11 +1250,13 @@ Why? Inner dimensions cancel out (1024),
      Outer dimensions remain (4 and 8*128)
 ```
 
+<br>
+
 ---
 
 ##### Visualizing the Transformation
 
-Looking at the bottom part of the diagram, we can see a detailed visualization of this process:
+Looking at the bottom part of the diagram above, we can visualize the matrix multiplication process in detail:
 
 1. **Input Sequence (X)**:
    - Each row represents a token/patch with 1024 dimensions
@@ -1266,9 +1270,10 @@ Looking at the bottom part of the diagram, we can see a detailed visualization o
      ```
 
 2. **Parameter Matrix (Wq/Wk/Wv)**:
-   - The diagram shows how the 1024×1024 matrix is organized
-   - Each row is split into 8 groups (heads)
-   - Each head processes 128 dimensions
+   - Visualized as a large 1024×1024 matrix
+   - Each row (1024 rows total) is made up of smaller vectors
+   - Each vector is split into 8 groups (heads), each with 128 dimensions
+   - Overall size remains 1024×1024, but vectors are organized into 8 heads
    - Visualized as columns in the diagram:
      ```
      Head 1: Processes dimensions 1-128
@@ -1278,9 +1283,10 @@ Looking at the bottom part of the diagram, we can see a detailed visualization o
      ```
 
 3. **Output Matrix (Q/K/V)**:
-   - The diagram shows the final shape (4, 8, 128)
-   - Each token now has 8 different representations
-   - Each representation focuses on different aspects:
+   - The output is a matrix where each token is split into multiple subgroups
+   - Size of (4, 8, 128): 4 rows split into 8 groups of smaller embeddings
+   - Each smaller embedding is made up of 128 dimensions
+   - Each token now has 8 different representations focusing on different aspects:
      ```
      Token "bank":
      Head 1 (dims 1-128):   [0.1, ..., 0.4]  → Financial aspects
@@ -1289,7 +1295,11 @@ Looking at the bottom part of the diagram, we can see a detailed visualization o
      ...and so on
      ```
 
-##### Importance for Multi-Head Attention
+<br>
+
+---
+
+##### Importance of Matrix Multiplication for Multi-Head Attention
 
 This transformation is crucial because it enables tokens/patches to relate to each other in multiple ways:
 
@@ -1344,5 +1354,3 @@ This transformation is crucial because it enables tokens/patches to relate to ea
      Head 7: [128-dim] → Temporal aspects
      Head 8: [128-dim] → Structural aspects
      ```
-
-This multi-headed approach, as visualized in the diagram, allows the model to process multiple aspects of the input simultaneously, making it more powerful than single-headed attention. Each head can specialize in different types of relationships, leading to richer and more nuanced understanding of the input sequence.
