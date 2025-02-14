@@ -45,6 +45,12 @@
         - [Transposition Process (Arrow in Diagram)](#transposition-process-arrow-in-diagram)
         - [Resulting Structure (Right Side)](#resulting-structure-right-side)
         - [Why This Transformation Matters](#why-this-transformation-matters)
+      - [Step 3: Calculate the Attention for Each Head in Parallel](#step-3-calculate-the-attention-for-each-head-in-parallel)
+        - [Matrix Setup and Multiplication](#matrix-setup-and-multiplication)
+        - [Attention Score Computation](#attention-score-computation)
+        - [Scaling Factor (√d\_head)](#scaling-factor-d_head)
+        - [Attention Mask for Language Models](#attention-mask-for-language-models)
+        - [Softmax Application](#softmax-application)
 
 # Components
 
@@ -1447,5 +1453,122 @@ Head 2: [
    - Each head can specialize without interference from others
 
 This transformation is crucial for enabling the parallel, multi-headed nature of attention mechanisms, allowing each head to develop its own specialized way of relating tokens or patches while maintaining computational efficiency.
+
+<br><br>
+
+---
+
+#### Step 3: Calculate the Attention for Each Head in Parallel
+
+![step3-calculate-attention](step3-calculate-attention.png)
+
+After transposing our matrices in Step 2, we now calculate attention scores for each head independently. Looking at the diagram, we can see how this process works for a single head.
+
+##### Matrix Setup and Multiplication
+
+1. **Query Matrix (QHead₁)**:
+   - Shape: (4, 128)
+   - Each row represents a token's first 128 dimensions
+   - For our example "I love pepperoni pizza":
+     ```
+     Row 1: "I"         → [dim₁...dim₁₂₈]
+     Row 2: "love"      → [dim₁...dim₁₂₈]
+     Row 3: "pepperoni" → [dim₁...dim₁₂₈]
+     Row 4: "pizza"     → [dim₁...dim₁₂₈]
+     ```
+
+2. **Key Matrix Transpose (K^T Head₁)**:
+   - Original shape: (4, 128)
+   - Transposed shape: (128, 4)
+   - Transforms row vectors into column vectors
+   - Enables dot product computation with queries
+
+##### Attention Score Computation
+
+The middle matrix in the diagram shows the result of:
+```python
+Attention = (Q × K^T) / √d_head  # where d_head = 128
+```
+
+This creates a 4×4 matrix where:
+- Each cell represents the dot product between two tokens
+- Rows represent queries (from Q)
+- Columns represent keys (from K^T)
+- Remember the inner dimensions cancel out which is why it became a 4x4 matrix
+
+Example scores from the diagram:
+```
+         I    love  pepp  pizza
+I     [13.9  21.1  -100  17.5]
+love  [-5.0  3.14   1.2  75.3]
+pepp  [ ...   ...   ...   ...]
+pizza [ ...   ...   ...   ...]
+```
+
+The value 13.9 represents how strongly "I" relates to itself, 21.1 shows how strongly "I" relates to "love", and so on.
+
+##### Scaling Factor (√d_head)
+
+We divide by √128 (the head dimension) to:
+- Prevent dot products from growing too large
+- Maintain stable gradients
+- Keep attention scores in a reasonable range
+
+For example:
+```python
+# Without scaling
+v1 · v2 = 1000  # Could lead to extreme softmax values
+
+# With scaling (√128 ≈ 11.3)
+(v1 · v2) / √128 ≈ 88.5  # More manageable value
+```
+
+##### Attention Mask for Language Models
+
+![step3-2-attentionmask](step3-2-attentionmask.png)
+
+In language models, we need to prevent tokens from attending to future tokens. We achieve this through attention masking:
+
+1. **Creating the Mask**:
+   ```
+   For token "I":    Can see [I]
+   For token "love": Can see [I, love]
+   For token "pepp": Can see [I, love, pepp]
+   For token "pizza": Can see [I, love, pepp, pizza]
+   ```
+
+2. **Applying the Mask**:
+   - Add -∞ to positions we want to mask
+   - Example from diagram:
+     ```
+     Original:  [13.9  21.1  -100  17.5]
+     Masked:    [13.9  -∞    -∞    -∞   ]  # "I" can only see itself
+     ```
+
+##### Softmax Application
+
+The final step converts attention scores to probabilities:
+```python
+attention_probs = softmax(masked_scores)  # Apply row-wise
+```
+
+Results from diagram:
+```
+         I    love  pepp  pizza
+I     [1.0   0.0   0.0   0.0 ]  # "I" only attends to itself
+love  [0.4   0.1   0.3   0.2 ]  # Masked future tokens
+pepp  [0.2   0.4   0.4   0.0 ]  # Masked future tokens
+pizza [0.4   0.2   0.3   0.1 ]  # Full context available
+```
+
+Key properties:
+- Each row sums to 1.0
+- Masked positions become 0 (e^-∞ = 0)
+- Higher input scores → higher attention probabilities
+- Each head computes this independently
+
+This process allows each head to learn different attention patterns while maintaining the causal nature of language modeling (preventing information leakage from future tokens).
+
+
 
 
