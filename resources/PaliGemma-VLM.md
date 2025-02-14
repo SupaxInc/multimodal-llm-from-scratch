@@ -1223,6 +1223,9 @@ The power of transformer architecture lies in its ability to process sequences i
 
 This parallel nature, combined with the ability to capture long-range dependencies, makes transformers extremely effective for both vision and language tasks, despite their different attention patterns (full attention for vision vs. causal attention for language).
 
+<br><br>
+
+---
 
 ### How it Works
 
