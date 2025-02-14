@@ -40,6 +40,11 @@
         - [Matrix Multiplication Process](#matrix-multiplication-process)
         - [Visualizing the Transformation](#visualizing-the-transformation)
         - [Importance of Matrix Multiplication for Multi-Head Attention](#importance-of-matrix-multiplication-for-multi-head-attention)
+      - [Step 2: Treat Each Head Independently!](#step-2-treat-each-head-independently)
+        - [Initial Matrix Structure (Left Side)](#initial-matrix-structure-left-side)
+        - [Transposition Process (Arrow in Diagram)](#transposition-process-arrow-in-diagram)
+        - [Resulting Structure (Right Side)](#resulting-structure-right-side)
+        - [Why This Transformation Matters](#why-this-transformation-matters)
 
 # Components
 
@@ -1355,3 +1360,89 @@ This transformation is crucial because it enables tokens/patches to relate to ea
      Head 7: [128-dim] → Temporal aspects
      Head 8: [128-dim] → Structural aspects
      ```
+
+<br><br>
+
+---
+
+#### Step 2: Treat Each Head Independently!
+
+![step2-transpose](step2-transpose.png)
+
+After creating our Q, K, and V matrices in Step 1, we need to reorganize them to enable parallel processing across attention heads. Looking at the diagram, we can see this reorganization through transposition.
+
+##### Initial Matrix Structure (Left Side)
+- Starting shape: (4, 8, 128)
+  - 4: sequence length (number of tokens/patches)
+  - 8: number of attention heads
+  - 128: dimensions per head
+- Each head is composed of 128 dimensions
+- Each token's embedding is split across all heads
+
+---
+
+##### Transposition Process (Arrow in Diagram)
+```python
+# Before transpose:
+shape = (4, 8, 128)  # [sequence_length, n_heads, head_dim]
+
+# After transpose of first two dimensions:
+shape = (8, 4, 128)  # [n_heads, sequence_length, head_dim]
+```
+
+---
+
+##### Resulting Structure (Right Side)
+The transposed structure creates 8 independent sequences, where:
+- Each sequence represents one attention head
+- Each sequence contains all 4 tokens
+- Each token has 128 dimensions (dedicated to that head)
+
+For example:
+```
+Head 1: [
+    Token1[128d], Token2[128d], Token3[128d], Token4[128d]
+]
+Head 2: [
+    Token1[128d], Token2[128d], Token3[128d], Token4[128d]
+]
+...and so on for all 8 heads
+```
+
+---
+
+##### Why This Transformation Matters
+
+1. **Independent Processing**:
+   - Each head can now process its sequence independently
+   - As shown in the diagram's right side, each head has its own complete view of the sequence
+   - But each token is represented by only the dimensions relevant to that head
+
+2. **Parallel Computation**:
+   - The diagram shows how we split into 8 parallel sequences
+   - Each sequence can be processed simultaneously
+   - No need for communication between heads during attention computation
+
+3. **Specialized Learning**:
+   ```
+   Head 1: Processes [Token1₁₂₈, Token2₁₂₈, Token3₁₂₈, Token4₁₂₈]
+          ↓ (learns one type of relationship)
+   Head 2: Processes [Token1₁₂₈, Token2₁₂₈, Token3₁₂₈, Token4₁₂₈]
+          ↓ (learns different type of relationship)
+   ...and so on
+   ```
+   - Each head learns to relate tokens differently
+   - Uses its dedicated 128 dimensions to capture specific patterns
+
+4. **Efficiency Benefits**:
+   - As shown by the diagram's structure:
+     ```
+     Before: Need to coordinate across 8 heads
+     After:  8 independent sequences that can run in parallel
+     ```
+   - This parallelization significantly speeds up computation
+   - Each head can specialize without interference from others
+
+This transformation is crucial for enabling the parallel, multi-headed nature of attention mechanisms, allowing each head to develop its own specialized way of relating tokens or patches while maintaining computational efficiency.
+
+
