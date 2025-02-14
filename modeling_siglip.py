@@ -188,6 +188,9 @@ class SiglipAttention(nn.Module):
         key_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         value_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
+        # Calculate the attention using the formula: Q * K^T / sqrt(d_k)
+        # [B, num_heads, num_patches, num_patches]
+        attn_weights = (torch.matmul(query_states, key_states.transpose(2, 3)) * self.scale)
 
 
 class SiglipMLP(nn.Module):
