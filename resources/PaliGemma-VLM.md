@@ -51,6 +51,10 @@
         - [Scaling Factor (√d\_head)](#scaling-factor-d_head)
         - [Attention Mask for Language Models](#attention-mask-for-language-models)
         - [Softmax Application](#softmax-application)
+      - [Step 4: Multiply by the V Sequence](#step-4-multiply-by-the-v-sequence)
+        - [Matrix Components](#matrix-components)
+        - [Computing Weighted Sums](#computing-weighted-sums)
+        - [Understanding the Weighted Combinations](#understanding-the-weighted-combinations)
 
 # Components
 
@@ -1568,6 +1572,101 @@ Key properties:
 - Each head computes this independently
 
 This process allows each head to learn different attention patterns while maintaining the causal nature of language modeling (preventing information leakage from future tokens).
+
+<br><br>
+
+#### Step 4: Multiply by the V Sequence
+
+![step4-multiply-v-seq](step4-multiply-v-seq.png)
+
+After calculating attention weights in Step 3, we multiply these weights with the value (V) sequence to produce the final output. Looking at the diagram, we can see how this multiplication creates weighted combinations of token representations.
+
+##### Matrix Components
+
+1. **Attention Weight Matrix (Left, 4×4)**:
+   ```
+   Token relationships after softmax and masking:
+         I    love  pepp  pizza
+   I    [1.0  0.0   0.0   0.0 ]  # "I" only sees itself
+   love [0.6  0.4   0.0   0.0 ]  # "love" sees "I" and itself
+   pepp [0.2  0.4   0.4   0.0 ]  # "pepp" sees previous tokens
+   pizza[0.4  0.2   0.3   0.1 ]  # "pizza" sees all tokens
+   ```
+
+2. **Value Matrix (Right, 4×128)**:
+   ```
+   Each row represents a token's 128-dimensional embedding:
+   I:         [v₁₁, v₁₂, ..., v₁₁₂₈]
+   love:      [v₂₁, v₂₂, ..., v₂₁₂₈]
+   pepperoni: [v₃₁, v₃₂, ..., v₃₁₂₈]
+   pizza:     [v₄₁, v₄₂, ..., v₄₁₂₈]
+   ```
+
+##### Computing Weighted Sums
+
+The output matrix (4×128) is computed through matrix multiplication, where each output embedding is a weighted sum of value vectors. Let's break down how this works:
+
+1. **First Token ("I") Output**:
+   ```
+   Weights: [1.0, 0.0, 0.0, 0.0]
+   Output embedding = 1.0 × I_values + 0.0 × love_values + 0.0 × pepp_values + 0.0 × pizza_values
+   
+   For dimension 1:
+   out₁₁ = (1.0 × v₁₁) + (0.0 × v₂₁) + (0.0 × v₃₁) + (0.0 × v₄₁)
+   = v₁₁  # Only uses "I" token's values
+   ```
+
+2. **Second Token ("love") Output**:
+   ```
+   Weights: [0.6, 0.4, 0.0, 0.0]
+   Output embedding = 0.6 × I_values + 0.4 × love_values + 0.0 × pepp_values + 0.0 × pizza_values
+   
+   For dimension 1:
+   out₂₁ = (0.6 × v₁₁) + (0.4 × v₂₁) + (0.0 × v₃₁) + (0.0 × v₄₁)
+   # Combines "I" and "love" token values
+   ```
+
+3. **Third Token ("pepperoni") Output**:
+   ```
+   Weights: [0.2, 0.4, 0.4, 0.0]
+   Output embedding = 0.2 × I_values + 0.4 × love_values + 0.4 × pepp_values + 0.0 × pizza_values
+   
+   For dimension 1:
+   out₃₁ = (0.2 × v₁₁) + (0.4 × v₂₁) + (0.4 × v₃₁) + (0.0 × v₄₁)
+   # Equal contribution from "love" and "pepperoni", less from "I"
+   ```
+
+##### Understanding the Weighted Combinations
+
+This multiplication effectively creates context-aware representations:
+
+1. **First Token ("I")**:
+   - Only uses its own values (weight 1.0)
+   - Output is identical to input embedding
+   - No mixing with other tokens due to causal masking
+
+2. **Second Token ("love")**:
+   - Combines information from "I" (60%) and itself (40%)
+   - Example calculation for one dimension:
+     ```
+     If v₁₁ = 0.5 (from "I") and v₂₁ = 0.3 (from "love")
+     out₂₁ = (0.6 × 0.5) + (0.4 × 0.3)
+     = 0.3 + 0.12
+     = 0.42  # New contextualized value
+     ```
+
+3. **Third Token ("pepperoni")**:
+   - Equal weights for "love" and itself (0.4 each)
+   - Small contribution from "I" (0.2)
+   - Creates a balanced representation of the phrase so far
+
+This process happens in parallel for:
+- All 128 dimensions in each token
+- All 8 attention heads
+- Each head producing its own weighted combinations
+- Each focusing on different aspects of the relationships
+
+The final output preserves the sequence length (4) and head dimension (128) while incorporating contextual information through these weighted sums. This allows each token to carry information about relevant previous tokens, weighted by their attention scores.
 
 
 
