@@ -1556,7 +1556,7 @@ Results from diagram:
 ```
          I    love  pepp  pizza
 I     [1.0   0.0   0.0   0.0 ]  # "I" only attends to itself
-love  [0.4   0.1   0.3   0.2 ]  # Masked future tokens
+love  [0.6   0.4   0.0   0.0 ]  # Masked future tokens
 pepp  [0.2   0.4   0.4   0.0 ]  # Masked future tokens
 pizza [0.4   0.2   0.3   0.1 ]  # Full context available
 ```
