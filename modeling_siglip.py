@@ -203,10 +203,30 @@ class SiglipAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         # Apply dropout only during training, takes random using probability and making some numbers into 0
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
-
         # Multiply the attention weights by the value states, transformation of the Wv matrix 
         # [B, num_heads, num_patches, head_dim]
         attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (batch_size, self.num_heads, seq_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(batch_size, self.num_heads, seq_len, seq_len)}, but is"
+                f" {attn_output.size()}"
+            )
+        
+        # Transpose back, contiguous means we want the tensor to represent the information in memory
+        # [B, num_heads, num_patches, head_dim] -> [B, num_patches, num_heads, head_dim]
+        attn_output = attn_output.transpose(1, 2).contiguous()
+
+        # Now concatenate, contiguous helps not make any computation in the memory for the reshape
+        # [B, num_patches, num_heads, head_dim] -> [B, num_patches, embed_dim]
+        attn_output = attn_output.reshape(batch_size, seq_len, self.embed_dim)
+
+        # Multiply by Wo matrix
+        # [B, num_patches, embed_dim]
+        attn_output = self.out_proj(attn_output)
+
+        return attn_output, attn_weights
+
 
 
 class SiglipMLP(nn.Module):

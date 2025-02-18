@@ -55,6 +55,11 @@
         - [Matrix Components](#matrix-components)
         - [Computing Weighted Sums](#computing-weighted-sums)
         - [Understanding the Weighted Combinations](#understanding-the-weighted-combinations)
+      - [Step 5, 6, 7: Transpose Back, Concatenate all the Heads and Multiply by Wo](#step-5-6-7-transpose-back-concatenate-all-the-heads-and-multiply-by-wo)
+        - [Step 5: Transpose Back](#step-5-transpose-back)
+        - [Step 6: Concatenate all the Heads](#step-6-concatenate-all-the-heads)
+        - [Step 7: Multiply by Wo](#step-7-multiply-by-wo)
+        - [Why This Process Matters](#why-this-process-matters)
 
 # Components
 
@@ -1669,5 +1674,129 @@ This process happens in parallel for:
 The final output preserves the sequence length (4) and head dimension (128) while incorporating contextual information through these weighted sums. This allows each token to carry information about relevant previous tokens, weighted by their attention scores.
 
 
+<br><br>
 
+---
+
+#### Step 5, 6, 7: Transpose Back, Concatenate all the Heads and Multiply by Wo
+
+After computing attention for each head independently, we need to combine their results to produce the final output. This process involves three key steps: transposing back, concatenating heads, and mixing their results.
+
+##### Step 5: Transpose Back
+
+![step5-transpose-back](step5-transpose-back.png)
+
+First, we need to reorganize our attention outputs to prepare for concatenation:
+
+1. **Initial Structure (Left Side)**:
+   - Shape: (8, 4, 128)
+   - Each head has its own contextualized sequence
+   - Each sequence contains partial embeddings (128-dim) for all tokens
+   ```python
+   # Each head's output:
+   Head 1: [token1₁₂₈, token2₁₂₈, token3₁₂₈, token4₁₂₈]
+   Head 2: [token1₁₂₈, token2₁₂₈, token3₁₂₈, token4₁₂₈]
+   ...and so on for all 8 heads
+   ```
+
+2. **Transposed Structure (Right Side)**:
+   - Shape: (4, 8, 128)
+   - Each token now has 8 different contextualized representations
+   - Each representation is 128 dimensions
+   ```python
+   # After transpose:
+   Token 1: [head1₁₂₈, head2₁₂₈, ..., head8₁₂₈]
+   Token 2: [head1₁₂₈, head2₁₂₈, ..., head8₁₂₈]
+   ...and so on for all 4 tokens
+   ```
+
+---
+
+##### Step 6: Concatenate all the Heads
+
+![step6-concatenate-all-heads](step6-concatenate-all-heads.png)
+
+Next, we merge the heads' outputs into a single embedding for each token:
+
+1. **Before Concatenation (Left Side)**:
+   - Shape: (4, 8, 128)
+   - Each token has 8 separate contextualized embeddings
+   ```python
+   Token 1: [
+       head1: [0.1, ..., 0.8],  # 128 dims
+       head2: [0.3, ..., 0.5],  # 128 dims
+       ...
+       head8: [0.2, ..., 0.9]   # 128 dims
+   ]
+   ```
+
+2. **After Concatenation (Right Side)**:
+   - Shape: (4, 1024)
+   - Each token now has one large embedding
+   - 1024 = 8 heads × 128 dimensions
+   ```python
+   Token 1: [head1₁₂₈ | head2₁₂₈ | ... | head8₁₂₈]  # 1024 dims
+   Token 2: [head1₁₂₈ | head2₁₂₈ | ... | head8₁₂₈]  # 1024 dims
+   ...and so on
+   ```
+
+##### Step 7: Multiply by Wo
+
+![step7-multiply-by-wo](step7-multiply-by-wo.png)
+
+Finally, we mix the information from different heads using the Wo parameter matrix:
+
+1. **Input (Left Side)**:
+   - Shape: (4, 1024)
+   - Concatenated but unmixed head outputs
+   ```
+   Token 1: [head1_all | head2_all | ... | head8_all]
+   Token 2: [head1_all | head2_all | ... | head8_all]
+   ...
+   ```
+
+2. **Wo Parameter Matrix (Middle)**:
+   - Shape: (1024, 1024)
+   - Enables mixing between head outputs
+   - Each output dimension depends on all head outputs
+
+3. **Final Output (Right Side)**:
+   - Shape: (4, 1024)
+   - Each dimension is now a mixture of all head outputs
+   ```python
+   # For first dimension of first token:
+   output₁₁ = Σ(token1_concat₁₀₂₄ × Wo_column1₁₀₂₄)
+   # Uses all 1024 values from concatenated heads
+   ```
+
+##### Why This Process Matters
+
+1. **Transpose Back (Step 5)**:
+   - Reorganizes from head-centric to token-centric view
+   - Prepares for efficient concatenation
+   - Maintains parallel processing benefits
+
+2. **Concatenation (Step 6)**:
+   - Preserves all information from each head
+   - Restores original embedding dimension
+   - But heads remain independent
+
+3. **Wo Multiplication (Step 7)**:
+   - Critical for mixing head information
+   - Without Wo: Just independent parallel processes
+   - With Wo: Rich interactions between head outputs
+   ```python
+   # Example of mixing:
+   Before Wo:
+   token1 = [financial_aspect | color_aspect | motion_aspect | ...]
+   
+   After Wo:
+   token1 = [
+       dim1 = 0.3×financial + 0.5×color + 0.2×motion + ...,
+       dim2 = 0.1×financial + 0.7×color + 0.2×motion + ...,
+       ...
+   ]
+   ```
+
+This three-step process transforms the parallel, independent head outputs into a rich, mixed representation that captures the full complexity of token relationships while maintaining the model's original dimensionality.
 
