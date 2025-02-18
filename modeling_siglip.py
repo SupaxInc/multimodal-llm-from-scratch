@@ -188,9 +188,25 @@ class SiglipAttention(nn.Module):
         key_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
         value_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Calculate the attention using the formula: Q * K^T / sqrt(d_k)
+        # Calculate the attention weights using the formula: Q * K^T / sqrt(d_k)
         # [B, num_heads, num_patches, num_patches]
         attn_weights = (torch.matmul(query_states, key_states.transpose(2, 3)) * self.scale)
+
+        if attn_weights.size() != (batch_size, self.num_heads, seq_len, seq_len):
+            raise ValueError(
+                f"Attention weights should be of size {(batch_size, self.num_heads, seq_len, seq_len)} but is"
+                f" {attn_weights.size()}"
+            )
+
+        # Apply the softmax row-wise to convert the scores between 0 to 1 so that it sums up to 1
+        # [B, num_heads, num_patches, num_patches]
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        # Apply dropout only during training, takes random using probability and making some numbers into 0
+        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+
+        # Multiply the attention weights by the value states, transformation of the Wv matrix 
+        # [B, num_heads, num_patches, head_dim]
+        attn_output = torch.matmul(attn_weights, value_states)
 
 
 class SiglipMLP(nn.Module):
