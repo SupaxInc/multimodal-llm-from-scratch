@@ -148,7 +148,32 @@ class SiglipVisionEmbeddings(nn.Module):
         return embeddings
 
 class SiglipAttention(nn.Module):
-    """Multi-headed attention from 'Attention is All You Need' paper"""
+    """Multi-headed attention mechanism that processes input sequences in parallel through multiple attention heads.
+    
+    This implements the complete multi-head attention process as described in resources/PaliGemma-VLM.md:
+    
+    Step 1: Transform input sequence X into Q, K, V matrices
+    - Input sequence is transformed through learned parameter matrices Wq, Wk, Wv
+    - Each transformation splits the embedding dimension across multiple heads
+    
+    Step 2: Treat each head independently
+    - Reshape and transpose matrices to enable parallel processing
+    - Each head processes its own subset of the embedding dimensions
+    
+    Step 3: Calculate attention for each head
+    - Compute attention scores through Q × K^T / √d_head
+    - Apply softmax to get attention probabilities
+    - Optional masking for causal attention in language models
+    
+    Step 4: Multiply by V sequence
+    - Multiply attention probabilities with value vectors
+    - Creates weighted combinations of value vectors
+    
+    Steps 5-7: Combine and mix head outputs
+    - Transpose back to original sequence ordering
+    - Concatenate all head outputs
+    - Mix information through Wo parameter matrix
+    """
     
     def __init__(self, config: SiglipVisionConfig):
         super().__init__()
@@ -156,40 +181,70 @@ class SiglipAttention(nn.Module):
         self.embed_dim = config.hidden_size
         self.num_heads = config.num_attention_heads
         self.head_dim = self.embed_dim // self.num_heads
-        self.scale = self.head_dim**-0.5 # Equivalent to 1 / sqrt(self.head_dim), formula from paper
+        # Scale factor to prevent dot products from growing too large
+        self.scale = self.head_dim**-0.5
         self.dropout = config.attention_dropout
 
-        # WK Matrix
-        self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        # WV Matrix
-        self.v_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        # WQ Matrix
-        self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        # WO Matrix
-        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
+        # Parameter matrices for transforming input sequence:
+        # Each projects from embed_dim to embed_dim, but output is split across heads
+        self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)  # Key projection (Wk)
+        self.v_proj = nn.Linear(self.embed_dim, self.embed_dim)  # Value projection (Wv)
+        self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)  # Query projection (Wq)
+        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)  # Output projection (Wo)
     
     def forward(self, hidden_states: torch.Tensor) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        # [B, num_patches, embed_dim]
+        """Process input sequence through multi-head attention.
+        
+        Args:
+            hidden_states: Input sequence [batch_size, seq_len, embed_dim]
+                         For our example: [B, 4, 1024] from resources/PaliGemma-VLM.md
+            
+        Returns:
+            attn_output: Processed sequence with same shape as input
+                        [batch_size, seq_len, embed_dim]
+            attn_weights: Optional attention weights for visualization
+            
+        Shape transformations through each step:
+        
+        Step 1: X → Q, K, V
+        - Input:     [B, 4, 1024]
+        - After Wq/Wk/Wv: [B, 4, 1024] (but conceptually split for 8 heads)
+        
+        Step 2: Reshape for parallel processing
+        - Reshape:   [B, 4, 8, 128]  (split embed_dim into num_heads × head_dim)
+        - Transpose: [B, 8, 4, 128]  (move heads dim for parallel processing)
+        
+        Step 3: Calculate attention
+        - Q × K^T:   [B, 8, 4, 4]    (attention scores for each head)
+        - Softmax:   [B, 8, 4, 4]    (convert to probabilities)
+        
+        Step 4: Multiply by V
+        - Attention × V: [B, 8, 4, 128]  (weighted combination of values)
+        
+        Steps 5-7: Combine heads
+        - Transpose:    [B, 4, 8, 128]  (prepare for concatenation)
+        - Concatenate:  [B, 4, 1024]    (join all heads)
+        - Multiply Wo:  [B, 4, 1024]    (mix head information)
+        """
         batch_size, seq_len, _ = hidden_states.size()
 
-        # Parameter Matrices for query, key, value to transform input sequence
-        # [B, num_patches, embed_dim (1024)]
+        # Step 1: Transform input sequence through Wq, Wk, Wv
+        # [B, 4, 1024] -> [B, 4, 1024]
         query_states = self.q_proj(hidden_states)
-        # [B, num_patches, embed_dim (1024)]
         key_states = self.k_proj(hidden_states)
-        # [B, num_patches, embed_dim (1024)]
         value_states = self.v_proj(hidden_states)
 
-        # Split the tokens to smaller tokens depending on the number of heads using .view
-        # [B, num_patches, embed_dim] -> [B, num_patches, num_heads (8), head_dim (128)]
-        # Then transposes
-        # [B, num_patches, num_heads (8), head_dim (128)] -> [B, num_heads, num_patches, head_dim (128)]
+        # Step 2: Reshape and transpose for parallel processing
+        # First split embed_dim into num_heads × head_dim
+        # [B, 4, 1024] -> [B, 4, 8, 128]
+        # Then transpose to get heads dimension for parallel processing
+        # [B, 4, 8, 128] -> [B, 8, 4, 128]
         query_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        key_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
-        value_states = query_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        key_states = key_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        value_states = value_states.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
 
-        # Calculate the attention weights using the formula: Q * K^T / sqrt(d_k)
-        # [B, num_heads, num_patches, num_patches]
+        # Step 3: Calculate attention scores and apply scaling
+        # [B, 8, 4, 128] × [B, 8, 128, 4] -> [B, 8, 4, 4]
         attn_weights = (torch.matmul(query_states, key_states.transpose(2, 3)) * self.scale)
 
         if attn_weights.size() != (batch_size, self.num_heads, seq_len, seq_len):
@@ -198,36 +253,37 @@ class SiglipAttention(nn.Module):
                 f" {attn_weights.size()}"
             )
 
-        # Apply the softmax row-wise to convert the scores between 0 to 1 so that it sums up to 1
-        # [B, num_heads, num_patches, num_patches]
+        # Convert attention scores to probabilities with softmax, scores between 0 to 1 so that it sums up to 1
+        # [B, 8, 4, 4] -> [B, 8, 4, 4] (same shape, now probabilities)
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        # Apply dropout only during training, takes random using probability and making some numbers into 0
+        
+        # Apply dropout only during training
         attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
-        # Multiply the attention weights by the value states, transformation of the Wv matrix 
-        # [B, num_heads, num_patches, head_dim]
+
+        # Step 4: Multiply attention weights with values
+        # [B, 8, 4, 4] × [B, 8, 4, 128] -> [B, 8, 4, 128]
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (batch_size, self.num_heads, seq_len, self.head_dim):
             raise ValueError(
-                f"`attn_output` should be of size {(batch_size, self.num_heads, seq_len, seq_len)}, but is"
+                f"`attn_output` should be of size {(batch_size, self.num_heads, seq_len, self.head_dim)}, but is"
                 f" {attn_output.size()}"
             )
         
-        # Transpose back, contiguous means we want the tensor to represent the information in memory
-        # [B, num_heads, num_patches, head_dim] -> [B, num_patches, num_heads, head_dim]
+        # Steps 5-7: Combine and mix head outputs
+        # Step 5: Transpose back, contiguous means we want the tensor to represent the information in memory
+        # [B, 8, 4, 128] -> [B, 4, 8, 128]
         attn_output = attn_output.transpose(1, 2).contiguous()
 
-        # Now concatenate, contiguous helps not make any computation in the memory for the reshape
-        # [B, num_patches, num_heads, head_dim] -> [B, num_patches, embed_dim]
+        # Step 6: Concatenate heads, contiguous helps not make any computation in the memory for the reshape
+        # [B, 4, 8, 128] -> [B, 4, 1024]
         attn_output = attn_output.reshape(batch_size, seq_len, self.embed_dim)
 
-        # Multiply by Wo matrix
-        # [B, num_patches, embed_dim]
+        # Step 7: Mix information through Wo
+        # [B, 4, 1024] -> [B, 4, 1024]
         attn_output = self.out_proj(attn_output)
 
         return attn_output, attn_weights
-
-
 
 class SiglipMLP(nn.Module):
     """Multi-Layer Perceptron (MLP) component used in the SigLIP encoder layer.
