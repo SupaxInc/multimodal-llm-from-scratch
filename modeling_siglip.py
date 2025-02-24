@@ -2,6 +2,8 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
+# *This is the contrastive vision encoder from PaliGemma Architecture* 
+
 class SiglipVisionConfig:
     def __init__(
             self,

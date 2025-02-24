@@ -63,12 +63,12 @@
 
 # Components
 
-![vision-language-model](vision-language-model-architecture.png)
+![vision-language-model](resources/vision-language-model-architecture.png)
 
 ## Contrastive Vision Encoder
 
 ### What is contrastive learning?
-![contrastive-encoder](contrastive-encoder.png)
+![contrastive-encoder](resources/contrastive-encoder.png)
 Above is an example of **CLIP** (Contrastive-Language-Image Pre-training) architecture.
 
 #### Text Encoder
@@ -447,7 +447,7 @@ Based on the SigLip paper, due to the asymmetry of the softmax loss, normalizati
 
 ##### **Solution** to Computational Challenges: Sigmoid Loss
 
-![sigmoid-loss](sigmoid-loss.png)
+![sigmoid-loss](resources/sigmoid-loss.png)
 
 One solution to CLIP's computational overhead is replacing cross-entropy loss with sigmoid loss:
 
@@ -611,10 +611,10 @@ Using the article "An Image is Worth 16x16 Words: Transformers for Image Recogni
 Contrastive Vision Encoder. The transformer model is a sequence-to-sequence model that is fed with a sequence of embeddings that outputs a sequence of contextualized embeddings.
 
 **NOTE:** See "Actual SigLip Encoder Diagram" below to see the actual diagram for the encoder that contains the connections.
-![vision-transformer-diagram](vision-transformer-diagram.png)
+![vision-transformer-diagram](resources/vision-transformer-diagram.png)
 
 What the transformer looks like: <br>
-![transformer_architecture](<transformer_architecture.png>)
+![transformer_architecture](resources/transformer_architecture.png)
 
 Looking at the vision transformer diagram, we can see the process flows from bottom to top:
 1. Start with an input IMAGE (4x4 grid shown in diagram)
@@ -761,7 +761,7 @@ This process allows the model to:
 
 #### Actual SigLip Encoder Diagram
 
-![siglip-encoder](siglip-encoder.png)
+![siglip-encoder](resources/siglip-encoder.png)
 
 The SigLIP encoder diagram shows the detailed architecture of the vision encoder component. Let's break down its key components and their roles:
 
@@ -858,7 +858,7 @@ The key innovation in SigLIP is not in this encoder structure (which follows sta
 
 Layer normalization is a crucial technique used in transformers to stabilize and accelerate training. Let's understand how it works with a concrete example:
 
-![layer-normalization-diagram](layer-normalization.png)
+![layer-normalization](resources/layer-normalization.png)
 
 Looking at the diagram, we can break down the process into two key parts:
 
@@ -915,7 +915,7 @@ This normalization process helps ensure that the network can learn effectively r
 
 ### The Problem of Covariate Shift
 
-![problem-covariate-shift](problem-covariate-shift.png)
+![problem-covariate-shift](resources/problem-covariate-shift.png)
 
 Looking at the diagram, we can see how covariate shift creates training instability:
 
@@ -991,7 +991,7 @@ By normalizing the activations at each layer, we prevent the cascade of distribu
 
 According to the paper "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift" (Ioffe & Szegedy, 2015), batch normalization was introduced as the first major solution to the covariate shift problem.
 
-![batch-norm-example1](batch-norm-example1.png)
+![batch-norm-example1](resources/batch-norm-example1.png)
 
 Looking at the diagram with our batch B of images (cat, dog, zebra, etc.), batch normalization works as follows:
 
@@ -1152,7 +1152,7 @@ This dimensional difference is why layer normalization is more stable - each ite
 
 ## Multi-Head Attention
 
-![multi-head-attention](multi-head-attention.png)
+![multi-head-attention](resources/multi-head-attention.png)
 
 Multi-head attention is a key component in both Vision Transformers and Language Models, but they use it in slightly different ways. Let's explore both:
 
@@ -1246,7 +1246,7 @@ This parallel nature, combined with the ability to capture long-range dependenci
 
 #### Step 1: From X to Q, K, V Transformations
 
-![step1-qkv](step1-qkv.png)
+![step1-qkv](resources/step1-qkv.png)
 
 The first step in multi-head attention is transforming the input sequence X into three different representations: Query (Q), Key (K), and Value (V) matrices. Looking at the diagram, we can see how this transformation process works through matrix multiplication with learned parameter matrices Wq, Wk, and Wv.
 
@@ -1385,7 +1385,7 @@ This transformation is crucial because it enables tokens/patches to relate to ea
 
 #### Step 2: Treat Each Head Independently!
 
-![step2-transpose](step2-transpose.png)
+![step2-transpose](resources/step2-transpose.png)
 
 After creating our Q, K, and V matrices in Step 1, we need to reorganize them to enable parallel processing across attention heads. Looking at the diagram, we can see this reorganization through transposition.
 
@@ -1469,7 +1469,7 @@ This transformation is crucial for enabling the parallel, multi-headed nature of
 
 #### Step 3: Calculate the Attention for Each Head in Parallel
 
-![step3-calculate-attention](step3-calculate-attention.png)
+![step3-calculate-attention](resources/step3-calculate-attention.png)
 
 After transposing our matrices in Step 2, we now calculate attention scores for each head independently. Looking at the diagram, we can see how this process works for a single head.
 
@@ -1534,7 +1534,7 @@ v1 · v2 = 1000  # Could lead to extreme softmax values
 
 ##### Attention Mask for Language Models
 
-![step3-2-attentionmask](step3-2-attentionmask.png)
+![step3-2-attentionmask](resources/step3-2-attentionmask.png)
 
 In language models, we need to prevent tokens from attending to future tokens. We achieve this through attention masking:
 
@@ -1582,7 +1582,7 @@ This process allows each head to learn different attention patterns while mainta
 
 #### Step 4: Multiply by the V Sequence
 
-![step4-multiply-v-seq](step4-multiply-v-seq.png)
+![step4-multiply-v-seq](resources/step4-multiply-v-seq.png)
 
 After calculating attention weights in Step 3, we multiply these weights with the value (V) sequence to produce the final output. Looking at the diagram, we can see how this multiplication creates weighted combinations of token representations.
 
@@ -1684,7 +1684,7 @@ After computing attention for each head independently, we need to combine their 
 
 ##### Step 5: Transpose Back
 
-![step5-transpose-back](step5-transpose-back.png)
+![step5-transpose-back](resources/step5-transpose-back.png)
 
 First, we need to reorganize our attention outputs to prepare for concatenation:
 
@@ -1714,7 +1714,7 @@ First, we need to reorganize our attention outputs to prepare for concatenation:
 
 ##### Step 6: Concatenate all the Heads
 
-![step6-concatenate-all-heads](step6-concatenate-all-heads.png)
+![step6-concatenate-all-heads](resources/step6-concatenate-all-heads.png)
 
 Next, we merge the heads' outputs into a single embedding for each token:
 
@@ -1742,7 +1742,7 @@ Next, we merge the heads' outputs into a single embedding for each token:
 
 ##### Step 7: Multiply by Wo
 
-![step7-multiply-by-wo](step7-multiply-by-wo.png)
+![step7-multiply-by-wo](resources/step7-multiply-by-wo.png)
 
 Finally, we mix the information from different heads using the Wo parameter matrix:
 
