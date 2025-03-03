@@ -6,6 +6,34 @@ import torch
 IMAGENET_STANDARD_MEAN = [0.5, 0.5, 0.5] # Values for RGB
 IMAGENET_STANDARD_STD = [0.5, 0.5, 0.5]
 
+def add_image_tokens_to_prompt(prefix_prompt, bos_token, image_seq_len, image_token):
+    """
+    Prepares the input prompt for PaliGemma VLM by adding image tokens and beginning-of-sequence token.
+    
+    For multimodal models like PaliGemma, the input needs to be structured in a specific format:
+    1. First, a sequence of image tokens is added (256 tokens for PaliGemma 3B)
+    2. Then, the beginning-of-sequence (BOS) token is added
+    3. Finally, the text prompt follows
+    
+    During processing:
+    - The image tokens are placeholders that will be replaced by actual image embeddings
+    - The vision encoder extracts features from the image
+    - These features are projected to the text embedding space and replace the image tokens
+    
+    Args:
+        prefix_prompt (str): The text prompt to be processed alongside the image
+        bos_token (str): The beginning-of-sequence token used by the tokenizer
+        image_seq_len (int): Number of image tokens to use (256 for PaliGemma 3B)
+        image_token (str): The placeholder token for images (typically "<image>")
+        
+    Returns:
+        str: Formatted prompt with image tokens, BOS token, and the text prompt
+    """
+    # Quoting from the blog (https://huggingface.co/blog/paligemma#detailed-inference-process)
+
+    # TODO: The PaliGemma paper states that \n should be tokenizer separately but HF implementation is not doing it. Could be an issue.
+    return f"{image_token * image_seq_len}{bos_token}{prefix_prompt}\n"
+
 def resize(
         image: Image,
         size: Tuple[int, int],
