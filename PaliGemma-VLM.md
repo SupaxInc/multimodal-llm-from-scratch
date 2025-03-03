@@ -23,6 +23,13 @@
         - [Example of SigLIP Processing](#example-of-siglip-processing)
     - [Vision Transformers (general)](#vision-transformers-general)
       - [Actual SigLip Encoder Diagram](#actual-siglip-encoder-diagram)
+  - [Input Processor \& Linear Projection](#input-processor--linear-projection)
+    - [Input Processing Overview](#input-processing-overview)
+      - [Step 1: Image Processing](#step-1-image-processing)
+      - [Step 2: Text Processing](#step-2-text-processing)
+      - [Step 3: Creating Combined Input Sequence](#step-3-creating-combined-input-sequence)
+      - [Step 4: Linear Projection](#step-4-linear-projection)
+    - [Example: Processing a Single Input](#example-processing-a-single-input)
 - [Random Teachings](#random-teachings)
   - [Normalization](#normalization)
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
@@ -848,7 +855,150 @@ The SigLIP encoder diagram shows the detailed architecture of the vision encoder
 
 The key innovation in SigLIP is not in this encoder structure (which follows standard transformer design), but rather in how the embeddings it produces are used in the contrastive learning setup with sigmoid loss.
 
+<br>
+
+## Input Processor & Linear Projection
+
+![layer-normalization](resources/vision-language-model-architecture.png)
+
+In the middle of the diagram above, you can see that we need to find a way to combine the image token and the text tokens before being processed by the Gemma 2B Language Model Transformer. This section explains how PaliGemma processes and combines image and text inputs to create a unified representation for the language model.
+
+### Input Processing Overview
+
+PaliGemma, like other vision-language models, needs to process two different modalities:
+1. **Images**: Processed through the Contrastive Vision Encoder (SigLIP)
+2. **Text**: Processed through tokenization
+
+The challenge is to combine these different modalities in a way that allows the language model to understand both simultaneously. Let's explore how this works:
+
+---
+
+#### Step 1: Image Processing
+
+Looking at the top-left of the architecture diagram, we start with:
+1. An input image is loaded as a tensor with shape [B, C, H, W] where:
+   - B: Batch size
+   - C: Channels (3 for RGB)
+   - H: Height
+   - W: Width
+
+2. The image is processed through several steps:
+   ```python
+   def process_images(images, size, resample, rescale_factor, image_mean, image_std):
+       # Resize images to the required dimensions
+       # Convert to numpy arrays
+       # Rescale pixel values to [0, 1]
+       # Normalize using mean and standard deviation
+       # Transpose to [C, H, W] format expected by the model
+   ```
+
+3. The Contrastive Vision Encoder (SigLIP) extracts visual features from the image
+
+---
+
+#### Step 2: Text Processing
+
+Looking at the bottom-left of the architecture diagram:
+1. The text prompt (e.g., "Where is the photographer resting?") is passed to a tokenizer
+2. The tokenizer converts the text into token IDs based on its vocabulary
+3. These token IDs represent the text in a numerical format that the model can process
+
+---
+
+#### Step 3: Creating Combined Input Sequence
+
+![input-paligemma](resources/input-paligemma.png)
+
+The key innovation is how these two modalities are combined:
+
+1. **Image Token Placeholders**:
+   - PaliGemma uses a special `<image>` token as a placeholder
+   - These placeholders will later be replaced with actual image embeddings
+
+2. **Input Sequence Construction**:
+   ```python
+   def add_image_tokens_to_prompt(prefix_prompt, bos_token, image_seq_len, image_token):
+       return f"{image_token * image_seq_len}{bos_token}{prefix_prompt}\n"
+   ```
+   Above is from processing.py.
+
+   This creates a sequence with:
+   - A series of image tokens (`<image>` repeated `image_seq_len` times)
+   - The beginning-of-sequence (BOS) token
+   - The text prompt
+   - A newline character as a separator
+
+3. **Token Structure**:
+   As shown in the input-paligemma.png diagram above, the input sequence has:
+   - **Image Tokens**: `img1`, `img2`, `img3`, etc. (placeholders for image features)
+   - **Prefix Prompt**: Starting with `[bos]` token, followed by input tokens (`inp1`, `inp2`, etc.)
+   - **Separator**: The `[sep]` token (represented by the newline character `\n`)
+   - **Output Tokens**: The model will generate these (`out1`, `out2`, etc.)
+
+---
+
+#### Step 4: Linear Projection
+
+The linear projection component (shown in the middle of the architecture diagram) is crucial:
+
+1. **Purpose**:
+   - Transforms the visual features from the Contrastive Vision Encoder
+   - Maps them to the same embedding space as the text tokens
+   - Ensures compatibility between image and text representations
+
+2. **Process**:
+   - The image features from SigLIP are projected using a linear layer
+   - This projection aligns the dimensionality and semantic space of image features with text embeddings
+   - The projected features replace the `<image>` placeholder tokens
+
+<br>
+
+---
+
+### Example: Processing a Single Input
+
+Let's walk through a concrete example of how an input is processed:
+
+1. **Starting Point**:
+   - Image: A beach scene
+   - Text prompt: "Where is the photographer resting?"
+
+2. **Image Processing**:
+   - Image is resized to the required dimensions (e.g., 224×224)
+   - Pixel values are normalized
+   - SigLIP encoder extracts 256 feature vectors
+
+3. **Text Processing**:
+   - Text is tokenized: `["Where", "is", "the", "photographer", "resting", "?"]`
+   - Converted to token IDs: `[1045, 2003, 1996, 19081, 8690, 1029]`
+
+4. **Combined Input Creation**:
+   ```
+   # Conceptual representation
+   [<image>, <image>, ..., <image>][BOS]Where is the photographer resting?\n
+   ```
+
+5. **Token ID Representation**:
+   ```
+   # Assuming <image> token ID is 50000 and BOS token ID is 1
+   [50000, 50000, ..., 50000, 1, 1045, 2003, 1996, 19081, 8690, 1029, 10]
+   ```
+
+6. **Linear Projection and Replacement**:
+   - SigLIP features are projected to text embedding space
+   - The `<image>` tokens are replaced with these projected features
+   - The resulting sequence contains both image and text information in a unified format
+
+7. **Final Processing**:
+   - The combined sequence is processed by the Gemma 2B Language Model
+   - The model can now "see" the image through the projected features
+   - It can answer questions about the image by generating appropriate text tokens
+
+This unified representation allows the language model to reason about both the image content and the text prompt, enabling it to generate contextually relevant responses that take both modalities into account.
+
 <br><br>
+
+---
 
 # Random Teachings
 
