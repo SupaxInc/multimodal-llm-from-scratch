@@ -1,7 +1,7 @@
 # Table of Contents
 - [Table of Contents](#table-of-contents)
 - [Components](#components)
-  - [Contrastive Vision Encoder](#contrastive-vision-encoder)
+  - [1) Contrastive Vision Encoder](#1-contrastive-vision-encoder)
     - [What is contrastive learning?](#what-is-contrastive-learning)
       - [Text Encoder](#text-encoder)
       - [Image Encoder](#image-encoder)
@@ -23,7 +23,7 @@
         - [Example of SigLIP Processing](#example-of-siglip-processing)
     - [Vision Transformers (general)](#vision-transformers-general)
       - [Actual SigLip Encoder Diagram](#actual-siglip-encoder-diagram)
-  - [Input Processor \& Linear Projection](#input-processor--linear-projection)
+  - [2) Input Processor \& Linear Projection](#2-input-processor--linear-projection)
     - [Input Processing Overview](#input-processing-overview)
       - [Step 1: Image Processing](#step-1-image-processing)
       - [Step 2: Text Processing](#step-2-text-processing)
@@ -72,7 +72,7 @@
 
 ![vision-language-model](resources/vision-language-model-architecture.png)
 
-## Contrastive Vision Encoder
+## 1) Contrastive Vision Encoder
 
 ### What is contrastive learning?
 ![contrastive-encoder](resources/contrastive-encoder.png)
@@ -857,7 +857,7 @@ The key innovation in SigLIP is not in this encoder structure (which follows sta
 
 <br>
 
-## Input Processor & Linear Projection
+## 2) Input Processor & Linear Projection
 
 ![layer-normalization](resources/vision-language-model-architecture.png)
 
