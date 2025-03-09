@@ -67,6 +67,13 @@
         - [Step 6: Concatenate all the Heads](#step-6-concatenate-all-the-heads)
         - [Step 7: Multiply by Wo](#step-7-multiply-by-wo)
         - [Why This Process Matters](#why-this-process-matters)
+  - [Weight Tying](#weight-tying)
+    - [What is Weight Tying?](#what-is-weight-tying)
+    - [Transformer Architecture and Output Layer](#transformer-architecture-and-output-layer)
+    - [The Symmetry Between Input and Output Layers](#the-symmetry-between-input-and-output-layers)
+    - [Benefits of Weight Tying](#benefits-of-weight-tying)
+    - [What Are Parameters?](#what-are-parameters)
+    - [Weight Tying in PaliGemma](#weight-tying-in-paligemma)
 
 # Components
 
@@ -1956,4 +1963,98 @@ Finally, we mix the information from different heads using the Wo parameter matr
    ```
 
 This three-step process transforms the parallel, independent head outputs into a rich, mixed representation that captures the full complexity of token relationships while maintaining the model's original dimensionality.
+
+<br><br>
+
+---
+
+## Weight Tying
+
+Weight tying is a powerful technique used in language models to reduce the number of parameters while maintaining model performance. Let's explore what it is, why it's used, and how it works in the context of models like PaliGemma.
+
+### What is Weight Tying?
+
+Weight tying is a parameter-sharing technique where the same weights are used for multiple layers or components in a neural network. In language models specifically:
+
+- It involves **reusing parameters** from one layer in another layer
+- Most commonly, it **shares weights** between the input embedding layer and the output linear layer
+- This technique was introduced in papers like ["Using the Output Embedding to Improve Language Models"](https://arxiv.org/abs/1608.05859) and ["Tying Word Vectors and Word Classifiers: A Loss Framework for Language Modeling"](https://arxiv.org/abs/1611.01462)
+
+### Transformer Architecture and Output Layer
+
+![transformer-architecture-outputs](resources/transformer-architecture-outputs.png)
+
+The image above shows the output portion of a decoder-only transformer architecture. This is a modification of the full transformer architecture that:
+
+- Contains only **Masked Multi-Head Attention** (self-attention only)
+- Includes **Feed Forward** layers
+- Has **Add & Norm** operations (residual connections and layer normalization)
+- Excludes the cross-attention mechanism found in encoder-decoder transformers
+- Ends with a **Linear** layer followed by **Softmax** to produce output probabilities
+
+The final linear layer is particularly important for weight tying, as it converts the model's hidden representations back to vocabulary-sized logits.
+
+### The Symmetry Between Input and Output Layers
+
+There's a natural symmetry between the input embedding layer and the output linear layer:
+
+1. **Input Embedding Layer**:
+   - Takes token IDs (integers representing positions in the vocabulary)
+   - Converts them to dense vector representations (embeddings)
+   - Mathematically: Maps from vocabulary space (V) to embedding space (E)
+   - Dimension transformation: [batch_size, seq_len] → [batch_size, seq_len, embedding_dim]
+
+2. **Output Linear Layer**:
+   - Takes the final hidden states (dense vector representations)
+   - Projects them back to vocabulary-sized logits
+   - Mathematically: Maps from embedding space (E) back to vocabulary space (V)
+   - Dimension transformation: [batch_size, seq_len, embedding_dim] → [batch_size, seq_len, vocab_size]
+
+These operations are essentially inverses of each other, which makes them ideal candidates for parameter sharing.
+
+### Benefits of Weight Tying
+
+1. **Parameter Efficiency**:
+   - Reduces the total number of parameters in the model
+   - For large vocabulary sizes (e.g., 50,000 tokens) and large embedding dimensions (e.g., 1024), 
+     this can save ~50 million parameters
+   - Example: In a model with vocab_size=50,000 and embedding_dim=1024:
+     - Without tying: 50,000 × 1024 × 2 = 102.4 million parameters
+     - With tying: 50,000 × 1024 = 51.2 million parameters (50% reduction)
+
+2. **Improved Regularization**:
+   - Acts as a form of regularization, potentially improving generalization
+   - Forces the model to use consistent representations for words in both input and output spaces
+
+3. **Performance Maintenance or Improvement**:
+   - Research has shown that models with tied weights often perform as well or better than those without
+   - The constraint of shared weights can guide the model toward more meaningful representations
+
+### What Are Parameters?
+
+In the context of neural networks:
+
+- **Parameters** are the learnable weights and biases that define how the model transforms inputs to outputs
+- They are adjusted during training to minimize the loss function
+- The total number of parameters in a model affects:
+  - Memory requirements (both for training and inference)
+  - Computational cost
+  - Model capacity (ability to learn complex patterns)
+  - Risk of overfitting
+
+For large language models like Gemma (the base of PaliGemma), the number of parameters can range from billions to trillions, making techniques like weight tying crucial for efficiency.
+
+### Weight Tying in PaliGemma
+
+In PaliGemma, weight tying is applied to the Gemma language model component. By sharing weights between the input embedding layer and the output projection layer, PaliGemma:
+
+1. Reduces its parameter count
+2. Maintains the semantic consistency between input token representations and output token predictions
+3. Potentially improves its generalization capabilities
+
+This technique is particularly valuable in multimodal models like PaliGemma, where efficiency is important due to the additional parameters required for processing visual inputs.
+
+<br><br>
+
+---
 
