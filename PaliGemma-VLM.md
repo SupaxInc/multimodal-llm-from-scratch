@@ -1992,7 +1992,7 @@ The image above shows the output portion of a decoder-only transformer architect
 - Excludes the cross-attention mechanism found in encoder-decoder transformers
 - Ends with a **Linear** layer followed by **Softmax** to produce output probabilities
 
-The final linear layer is particularly important for weight tying, as it converts the model's hidden representations back to vocabulary-sized logits.
+The final linear layer is particularly important for weight tying, as it converts the model's hidden representations back to vocabulary-sized logits where it is then passed through a softmax to normalize the values into a probability distribution over the vocabulary that ensures all output probabilities sum to 1.
 
 ### The Symmetry Between Input and Output Layers
 
