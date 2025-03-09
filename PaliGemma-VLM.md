@@ -863,6 +863,13 @@ The key innovation in SigLIP is not in this encoder structure (which follows sta
 
 In the middle of the diagram above, you can see that we need to find a way to combine the image token and the text tokens before being processed by the Gemma 2B Language Model Transformer. This section explains how PaliGemma processes and combines image and text inputs to create a unified representation for the language model.
 
+To summarize, the components from the diagram for this section consists of:
+1. Input image (from SigLIP vision model section)
+2. Input prompt: "Where is the photographer resting"
+3. Tokenizer
+4. Linear Projection (from SigLIP vision model section)
+5. The middle of the diagram where it combines the image and text tokens (unified representation for language model)
+
 ### Input Processing Overview
 
 PaliGemma, like other vision-language models, needs to process two different modalities:
