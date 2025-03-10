@@ -77,6 +77,8 @@
   - [KV Cache](#kv-cache)
     - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
       - [How Transformers Work During Training](#how-transformers-work-during-training)
+      - [How Transformers Work During Inference](#how-transformers-work-during-inference)
+      - [The Inefficiency Problem](#the-inefficiency-problem)
 
 # Components
 
@@ -2103,3 +2105,98 @@ Transformers are fundamentally sequence-to-sequence models. During training:
    - All tokens are processed in parallel
    - A single forward pass handles the entire sequence
    - The loss is calculated across all positions simultaneously
+
+#### How Transformers Work During Inference
+
+During inference (text generation), the process is fundamentally different from training. Let's examine how it works and why it becomes inefficient:
+
+![inference-transformer1](resources/inference-transformer1.png)
+
+1. **Starting with a Prompt**: 
+   - Let's say a user provides the prompt "I" and we want to generate a continuation
+   - Assuming our model was trained on sequences like "I love pepperoni pizza"
+
+2. **First Token Generation**:
+   - We feed the single token "I" to the transformer
+   - The transformer (as a seq2seq model) processes this token and outputs a single contextualized embedding
+   - This embedding contains information about the token "I" and its position
+
+3. **Logits and Probability Distribution**:
+   - The contextualized embedding is passed through the linear layer to produce logits
+   - Each logit corresponds to a score for a token in the model's vocabulary (which can be tens of thousands of tokens)
+   - Logits represent the model's raw prediction scores before normalization
+   - These logits are then passed through a softmax function to convert them to a probability distribution
+   - The softmax ensures all probabilities sum to 1, creating a valid distribution over the vocabulary
+
+4. **Token Sampling**:
+   - We sample from this probability distribution to select the next token
+   - In the simplest case (greedy sampling), we select the token with the highest probability
+   - Other sampling methods include:
+     - **Temperature sampling**: Controls randomness by scaling logits before softmax
+     - **Top-k sampling**: Restricts sampling to the k most likely tokens
+     - **Top-p (nucleus) sampling**: Samples from the smallest set of tokens whose cumulative probability exceeds p
+   - For our example, let's say the model predicts "love" as the next token
+
+5. **Generating the Next Token**:
+   - Now we need to generate the next token after "I love"
+
+![inference-transformer2](resources/inference-transformer2.png)
+
+6. **Feeding Back the Output**:
+   - We append the generated token "love" to our input, creating "I love"
+   - We feed this new sequence to the transformer
+   - The transformer now processes both tokens and outputs two contextualized embeddings
+   - Each embedding contains information about its position and all previous tokens (due to the causal mask)
+
+7. **Using Only the Last Embedding**:
+   - Although we get two contextualized embeddings, we only need the last one (for "love")
+   - This embedding contains information about both "I" and "love"
+   - We convert this embedding to logits, apply softmax, and sample again
+   - Let's say we get "pepperoni" as the next token
+
+8. **Continuing the Process**:
+   - We append "pepperoni" to get "I love pepperoni"
+   - Feed this to the transformer, get three contextualized embeddings
+   - Use only the last embedding to predict the next token
+   - Sample "pizza" as the next token
+   - Continue until we generate an end-of-sequence token or reach a maximum length
+
+#### The Inefficiency Problem
+
+This autoregressive (generating one token at a time, with each new token depending on all previous tokens) generation process has a fundamental inefficiency:
+
+1. **Redundant Computation**:
+   - Each time we add a new token, we recompute all previous tokens' representations
+   - For the sequence "I love pepperoni":
+     - We process "I" once when generating "love"
+     - We process "I" and "love" again when generating "pepperoni"
+     - We process "I", "love", and "pepperoni" again when generating "pizza"
+   - This means we're repeatedly performing the same computations
+
+2. **Wasted Embeddings**:
+   - We generate contextualized embeddings for all tokens in the sequence
+   - But we only use the last embedding for prediction
+   - All other embeddings are essentially wasted computation
+
+3. **Attention Mechanism Overhead**:
+   - The attention mechanism computes a large matrix of attention scores
+   - For a sequence of length n, we compute an n×n attention matrix
+     - E.g. 1000 tokens creates 1000x1000 matrix
+   - As the sequence grows, this matrix grows quadratically
+   - Most of these computations are repeated from previous steps
+
+4. **Computational Complexity**:
+   - For a sequence of length N, the naive approach requires:
+     - Processing token 1: 1 token computation
+     - Processing tokens 1-2: 2 token computations
+     - Processing tokens 1-3: 3 token computations
+     - ...and so on
+   - Total: 1 + 2 + 3 + ... + N = N(N+1)/2 token computations
+   - This is O(N²) complexity, which becomes prohibitive for long sequences
+
+5. **Memory Usage**:
+   - Each forward pass requires storing activations for all layers
+   - As the sequence grows, memory requirements increase linearly
+   - This can limit the maximum sequence length that can be processed
+
+This inefficiency becomes particularly problematic for applications requiring real-time text generation or processing of long sequences. The KV Cache technique addresses these issues by storing and reusing intermediate computations, which we'll explore in the next section.
