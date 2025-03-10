@@ -74,6 +74,9 @@
     - [Benefits of Weight Tying](#benefits-of-weight-tying)
     - [What Are Parameters?](#what-are-parameters)
     - [Weight Tying in PaliGemma](#weight-tying-in-paligemma)
+  - [KV Cache](#kv-cache)
+    - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
+      - [How Transformers Work During Training](#how-transformers-work-during-training)
 
 # Components
 
@@ -2058,3 +2061,45 @@ This technique is particularly valuable in multimodal models like PaliGemma, whe
 
 ---
 
+## KV Cache
+
+The KV Cache is a crucial optimization technique for transformer models during inference. Before diving into how it works, let's understand the problems it solves by examining how transformers operate during training versus inference.
+
+### The Problem: Inefficient Inference in Transformers
+
+![train-transformer](resources/train-transformer.png)
+
+#### How Transformers Work During Training
+
+Transformers are fundamentally sequence-to-sequence models. During training:
+
+1. **Parallel Processing**: We feed the model N tokens as input and receive N contextualized token embeddings as output.
+
+2. **Contextualized Embeddings**: As shown in the diagram above, when we train on a sentence like "I love pepperoni pizza":
+   - Each input token is converted to an embedding
+   - The transformer processes all tokens simultaneously
+   - The output consists of contextualized embeddings for each position
+
+3. **Context Capturing**: The nature of the context captured depends on the attention mask used:
+   - With a **causal mask** (used in decoder-only models like Gemma): Each token can only attend to itself and previous tokens
+     - In the diagram bove, we have the four boxes above the transformer box that oversimplifies as 1 token equals 1 word. However, each of these tokens that are outputted from the transformer are now contextualized embeddings
+     - Example: When processing "I love pepperoni pizza", the word "love" can only attend to "I" and itself
+     - Example: The word "pizza" can attend to "I", "love", "pepperoni", and itself, but not to any future tokens
+   - Without a mask (used in encoder models like SigLIP): Each token can attend to all tokens in the sequence
+     - Example: When processing an image, each patch can attend to all other patches regardless of position
+     - Example: In a bidirectional encoder, the word "pepperoni" can attend to both "I love" before it and "pizza" after it
+
+4. **Next Token Prediction**: During training, the model learns to predict the next token in the sequence:
+   - For the 1st position contains information about itself and previous tokens: "I"
+     - It learns to predict "love" (green text above the contextualized embeddings)
+   - For the 2nd position contains information about itself and previous tokens: "I love"
+     - It learns to predict "pepperoni"
+   - For the 3rd position contains information about itself and previous tokens: "I love pepperoni" 
+     - It learns to predict "pizza"
+   - For the 4th position contains information about itself and previous tokens: "I love pepperoni pizza" 
+     - It learns to predict EOS (End of Sentence)
+
+5. **Efficient Batch Processing**: This approach is computationally efficient during training because:
+   - All tokens are processed in parallel
+   - A single forward pass handles the entire sequence
+   - The loss is calculated across all positions simultaneously
