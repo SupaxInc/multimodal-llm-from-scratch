@@ -30,6 +30,19 @@
       - [Step 3: Creating Combined Input Sequence](#step-3-creating-combined-input-sequence)
       - [Step 4: Linear Projection](#step-4-linear-projection)
     - [Example: Processing a Single Input](#example-processing-a-single-input)
+  - [3) Gemma 2B Language Model](#3-gemma-2b-language-model)
+    - [KV Cache](#kv-cache)
+      - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
+        - [How Transformers Work During Training](#how-transformers-work-during-training)
+        - [How Transformers Work During Inference](#how-transformers-work-during-inference)
+          - [The Inefficiency Problem During Inference](#the-inefficiency-problem-during-inference)
+      - [How KV Cache Works](#how-kv-cache-works)
+        - [The Key Insight: Reusing Past Computations](#the-key-insight-reusing-past-computations)
+        - [The Crucial Observation](#the-crucial-observation)
+        - [KV Cache in Action: Step by Step](#kv-cache-in-action-step-by-step)
+        - [Why This Is Efficient](#why-this-is-efficient)
+        - [Implementation Considerations](#implementation-considerations)
+          - [Prefilling: Optimizing for Longer Prompts (Batch Processing)](#prefilling-optimizing-for-longer-prompts-batch-processing)
 - [Random Teachings](#random-teachings)
   - [Normalization](#normalization)
     - [Linear Layer and Layer Normalization Example](#linear-layer-and-layer-normalization-example)
@@ -74,18 +87,6 @@
     - [Benefits of Weight Tying](#benefits-of-weight-tying)
     - [What Are Parameters?](#what-are-parameters)
     - [Weight Tying in PaliGemma](#weight-tying-in-paligemma)
-  - [KV Cache](#kv-cache)
-    - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
-      - [How Transformers Work During Training](#how-transformers-work-during-training)
-      - [How Transformers Work During Inference](#how-transformers-work-during-inference)
-        - [The Inefficiency Problem During Inference](#the-inefficiency-problem-during-inference)
-    - [How KV Cache Works](#how-kv-cache-works)
-      - [The Key Insight: Reusing Past Computations](#the-key-insight-reusing-past-computations)
-      - [The Crucial Observation](#the-crucial-observation)
-      - [KV Cache in Action: Step by Step](#kv-cache-in-action-step-by-step)
-      - [Why This Is Efficient](#why-this-is-efficient)
-      - [Implementation Considerations](#implementation-considerations)
-        - [Prefilling: Optimizing for Longer Prompts (Batch Processing)](#prefilling-optimizing-for-longer-prompts-batch-processing)
 
 # Components
 
@@ -1021,6 +1022,352 @@ Let's walk through a concrete example of how an input is processed:
    - It can answer questions about the image by generating appropriate text tokens
 
 This unified representation allows the language model to reason about both the image content and the text prompt, enabling it to generate contextually relevant responses that take both modalities into account.
+
+<br>
+
+## 3) Gemma 2B Language Model
+
+### KV Cache
+
+The KV Cache is a crucial optimization technique for transformer models during inference. Before diving into how it works, let's understand the problems it solves by examining how transformers operate during training versus inference.
+
+#### The Problem: Inefficient Inference in Transformers
+
+![train-transformer](resources/train-transformer.png)
+
+##### How Transformers Work During Training
+
+Transformers are fundamentally sequence-to-sequence models. During training:
+
+1. **Parallel Processing**: We feed the model N tokens as input and receive N contextualized token embeddings as output.
+
+2. **Contextualized Embeddings**: As shown in the diagram above, when we train on a sentence like "I love pepperoni pizza":
+   - Each input token is converted to an embedding
+   - The transformer processes all tokens simultaneously
+   - The output consists of contextualized embeddings for each position
+
+3. **Context Capturing**: The nature of the context captured depends on the attention mask used:
+   - With a **causal mask** (used in decoder-only models like Gemma): Each token can only attend to itself and previous tokens
+     - In the diagram bove, we have the four boxes above the transformer box that oversimplifies as 1 token equals 1 word. However, each of these tokens that are outputted from the transformer are now contextualized embeddings
+     - Example: When processing "I love pepperoni pizza", the word "love" can only attend to "I" and itself
+     - Example: The word "pizza" can attend to "I", "love", "pepperoni", and itself, but not to any future tokens
+   - Without a mask (used in encoder models like SigLIP): Each token can attend to all tokens in the sequence
+     - Example: When processing an image, each patch can attend to all other patches regardless of position
+     - Example: In a bidirectional encoder, the word "pepperoni" can attend to both "I love" before it and "pizza" after it
+
+4. **Next Token Prediction**: During training, the model learns to predict the next token in the sequence:
+   - For the 1st position contains information about itself and previous tokens: "I"
+     - It learns to predict "love" (green text above the contextualized embeddings)
+   - For the 2nd position contains information about itself and previous tokens: "I love"
+     - It learns to predict "pepperoni"
+   - For the 3rd position contains information about itself and previous tokens: "I love pepperoni" 
+     - It learns to predict "pizza"
+   - For the 4th position contains information about itself and previous tokens: "I love pepperoni pizza" 
+     - It learns to predict EOS (End of Sentence)
+
+5. **Efficient Batch Processing**: This approach is computationally efficient during training because:
+   - All tokens are processed in parallel
+   - A single forward pass handles the entire sequence
+   - The loss is calculated across all positions simultaneously
+
+<br>
+
+---
+
+##### How Transformers Work During Inference
+
+During inference (text generation), the process is fundamentally different from training. Let's examine how it works and why it becomes inefficient:
+
+![inference-transformer1](resources/inference-transformer1.png)
+
+1. **Starting with a Prompt**: 
+   - Let's say a user provides the prompt "I" and we want to generate a continuation
+   - Assuming our model was trained on sequences like "I love pepperoni pizza"
+
+2. **First Token Generation**:
+   - We feed the single token "I" to the transformer
+   - The transformer (as a seq2seq model) processes this token and outputs a single contextualized embedding
+   - This embedding contains information about the token "I" and its position
+
+3. **Logits and Probability Distribution**:
+   - The contextualized embedding is passed through the linear layer to produce logits
+   - Each logit corresponds to a score for a token in the model's vocabulary (which can be tens of thousands of tokens)
+   - Logits represent the model's raw prediction scores before normalization
+   - These logits are then passed through a softmax function to convert them to a probability distribution
+   - The softmax ensures all probabilities sum to 1, creating a valid distribution over the vocabulary
+
+4. **Token Sampling**:
+   - We sample from this probability distribution to select the next token
+   - In the simplest case (greedy sampling), we select the token with the highest probability
+   - Other sampling methods include:
+     - **Temperature sampling**: Controls randomness by scaling logits before softmax
+     - **Top-k sampling**: Restricts sampling to the k most likely tokens
+     - **Top-p (nucleus) sampling**: Samples from the smallest set of tokens whose cumulative probability exceeds p
+   - For our example, let's say the model predicts "love" as the next token
+
+5. **Generating the Next Token**:
+   - Now we need to generate the next token after "I love"
+
+![inference-transformer2](resources/inference-transformer2.png)
+
+6. **Feeding Back the Output**:
+   - We append the generated token "love" to our input, creating "I love"
+   - We feed this new sequence to the transformer
+   - The transformer now processes both tokens and outputs two contextualized embeddings
+   - Each embedding contains information about its position and all previous tokens (due to the causal mask)
+
+7. **Using Only the Last Embedding**:
+   - Although we get two contextualized embeddings, we only need the last one (for "love")
+   - This embedding contains information about both "I" and "love"
+   - We convert this embedding to logits, apply softmax, and sample again
+   - Let's say we get "pepperoni" as the next token
+
+8. **Continuing the Process**:
+   - We append "pepperoni" to get "I love pepperoni"
+   - Feed this to the transformer, get three contextualized embeddings
+   - Use only the last embedding to predict the next token
+   - Sample "pizza" as the next token
+   - Continue until we generate an end-of-sequence token or reach a maximum length
+
+###### The Inefficiency Problem During Inference
+
+This autoregressive (generating one token at a time, with each new token depending on all previous tokens) generation process has a fundamental inefficiency:
+
+1. **Redundant Computation**:
+   - Each time we add a new token, we recompute all previous tokens' representations
+   - For the sequence "I love pepperoni":
+     - We process "I" once when generating "love"
+     - We process "I" and "love" again when generating "pepperoni"
+     - We process "I", "love", and "pepperoni" again when generating "pizza"
+   - This means we're repeatedly performing the same computations
+
+2. **Wasted Embeddings**:
+   - We generate contextualized embeddings for all tokens in the sequence
+   - But we only use the last embedding for prediction
+   - All other embeddings are essentially wasted computation
+
+3. **Attention Mechanism Overhead**:
+   - The attention mechanism computes a large matrix of attention scores
+   - For a sequence of length n, we compute an n×n attention matrix
+     - E.g. 1000 tokens creates 1000x1000 matrix
+   - As the sequence grows, this matrix grows quadratically
+   - Most of these computations are repeated from previous steps
+
+4. **Computational Complexity**:
+   - For a sequence of length N, the naive approach requires:
+     - Processing token 1: 1 token computation
+     - Processing tokens 1-2: 2 token computations
+     - Processing tokens 1-3: 3 token computations
+     - ...and so on
+   - Total: 1 + 2 + 3 + ... + N = N(N+1)/2 token computations
+   - This is O(N²) complexity, which becomes prohibitive for long sequences
+
+5. **Memory Usage**:
+   - Each forward pass requires storing activations for all layers
+   - As the sequence grows, memory requirements increase linearly
+   - This can limit the maximum sequence length that can be processed
+
+This inefficiency becomes particularly problematic for applications requiring real-time text generation or processing of long sequences. The KV Cache technique addresses these issues by storing and reusing intermediate computations, which we'll explore in the next section.
+
+<br>
+
+---
+
+#### How KV Cache Works
+
+Now that we understand the inefficiency problem during inference, let's explore how KV Cache solves it by eliminating redundant computations.
+
+![kv-cache](resources/kv-cache.png)
+
+##### The Key Insight: Reusing Past Computations
+
+The fundamental insight behind KV Cache is that we don't need to recompute the Key (K) and Value (V) tensors for previously processed tokens. Let's break down how this works:
+
+1. **Understanding Attention Computation**:
+   - In the top portion of the diagram, we see the standard attention formula: `(Q × K^T) / √d_head + mask`
+   - For a sequence like "I love pepperoni":
+     - Q (Query): Represents what each token is "looking for"
+     - K (Key): Represents what each token "contains"
+     - V (Value): Represents the actual content of each token
+
+2. **Attention Matrix Structure**:
+   - The top-right matrix in the diagram shows the attention scores for "I love pepperoni"
+   - Rows represent queries (what each token is looking for)
+   - Columns represent keys (what each token contains)
+   - Each cell contains the compatibility score between a query and a key
+   - For example, the value 0.4 in the middle row, second column represents how much "love" attends to "love"
+
+3. **Matrix Multiplication with Values**:
+   - In the middle of the diagram, we see this attention matrix being multiplied by the V sequence
+   - The V sequence has dimensions (3, 128), meaning 3 tokens each with a 128-dimensional representation
+   - This multiplication produces the contextualized embeddings shown at the bottom
+
+---
+
+##### The Crucial Observation
+
+The key insight is that when generating the next token after "I love pepperoni", we only need:
+
+1. **The last row of the attention matrix** (3, 3) matrix: The query for "pepperoni" attending to all previous keys (columns)
+2. **All columns of the V matrix** (3, 128) matrix: The value representations of all tokens
+
+Looking at the diagram, we can see exactly how each value in the contextualized embedding is computed:
+
+For the contextualized embedding of "I love pepperoni" (the last row in the bottom of the diagram):
+- The first value 1 is computed by:
+  * Taking the last row of the attention matrix (pepperoni) [0.2, 0.4, 0.4]
+  * Multiplying it with the first column of the V matrix [1, 1, 1]
+
+- The second value 2 is computed by:
+  * Taking the same attention row (pepperoni) [0.2, 0.4, 0.4]
+  * Multiplying it with the second column of the V matrix [2, 2, 2]
+
+This pattern continues for all 128 dimensions of the contextualized embedding. The critical efficiency comes from reusing the K and V matrices for previous tokens, meaning we don't need to recompute the entire attention matrix for each new token - we just need to extend it with one new row and one new column.
+
+![kv-cache2](resources/kv-cache2.png)
+
+---
+
+##### KV Cache in Action: Step by Step
+
+Let's walk through the process using the second diagram, which shows how KV Cache works in practice:
+
+1. **Initial Token Processing**:
+   - Starting with the prompt "I" (top of the diagram)
+   - The token is embedded and fed to the transformer
+   - The transformer converts it to Query (Q), Key (K), and Value (V) representations
+   - Self-attention is computed, producing a contextualized embedding
+   - This embedding is converted to logits, softmax is applied, and we sample "love"
+
+2. **Storing in KV Cache**:
+   - The Key (K) and Value (V) tensors for "I" are stored in a buffer called the KV Cache
+   - Initially empty, the KV Cache now contains K and V for "I"
+
+3. **Processing the Next Token**:
+   - **Critical difference**: Instead of feeding "I love" as input previously without the KV cache, we only feed the new token "love"
+   - This is a major departure from the naive approach and the source of efficiency
+   - The transformer processes only this single token, computing Q, K, and V for "love"
+
+4. **Extending the KV Cache**:
+   - The K and V tensors for "love" are appended to the KV Cache
+   - The KV Cache now contains K and V for both "I" and "love"
+
+5. **Computing Attention Efficiently**:
+   - The Query (Q) for "love" is computed from the current token
+   - But instead of recomputing K and V for all tokens, we use the stored values from the KV Cache
+   - Self-attention is computed using:
+     - Q for the current token "love"
+     - K and V for all tokens so far ("I" and "love") from the cache
+
+6. **Generating the Next Token**:
+   - The resulting contextualized embedding for "love" is used to predict the next token
+   - After applying the linear layer and softmax, we sample "pepperoni"
+
+7. **Continuing the Process**:
+   - For the next step, we only feed "pepperoni" as input
+   - Compute Q, K, and V for "pepperoni"
+   - Append K and V to the KV Cache (now containing "I", "love", and "pepperoni")
+   - Compute attention using Q for "pepperoni" and K, V from the cache
+   - Generate the next token ("pizza")
+   - And so on...
+
+---
+
+##### Why This Is Efficient
+
+The KV Cache approach dramatically reduces computation:
+
+1. **Processes Only One Token at a Time**:
+   - Instead of processing the entire sequence for each new token
+   - We only process the new token, computing Q, K, and V just once
+
+2. **Eliminates Redundant Computations**:
+   - K and V for each token are computed exactly once
+   - They're stored and reused for all future tokens
+   - This changes the complexity from O(N²) to O(N)
+
+3. **Memory-Computation Tradeoff**:
+   - We trade increased memory usage (storing the KV Cache)
+   - For drastically reduced computation (avoiding redundant processing)
+   - This is an excellent tradeoff for inference, where speed is critical
+
+4. **Perfect for Autoregressive Generation**:
+   - Ideally suited for the token-by-token generation process
+   - Each new token only requires a small amount of new computation
+   - The generation speed remains relatively constant regardless of sequence length
+
+---
+
+##### Implementation Considerations
+
+In practice, implementing KV Cache requires:
+
+1. **Memory Management**:
+   - Allocating sufficient memory to store K and V for potentially long sequences
+   - Implementing efficient memory access patterns
+
+2. **Attention Mask Handling**:
+   - Ensuring the causal mask is properly extended for each new token
+   - Maintaining the autoregressive property (each token can only attend to itself and previous tokens)
+
+3. **Batch Processing**:
+   - Supporting batched inference for multiple sequences
+   - Managing separate KV Caches for each sequence in the batch
+
+4. **Memory Limitations**:
+   - For very long sequences, the KV Cache can grow quite large
+   - Strategies like sliding window attention or cache pruning may be needed
+
+By using KV Cache, transformer models like PaliGemma can generate text much more efficiently, making real-time applications feasible even with limited computational resources.
+
+---
+
+###### Prefilling: Optimizing for Longer Prompts (Batch Processing)
+
+![kv-cache3](resources/kv-cache3.png)
+
+In real-world applications, users often provide multi-token prompts rather than single tokens. For example, instead of just "I", a user might input "I love" and ask the model to continue. This scenario introduces an optimization technique called "prefilling."
+
+**What is Prefilling?**
+
+Prefilling is the process of initializing the KV Cache with all tokens from the initial prompt in a single forward pass, rather than processing them one by one. This is particularly efficient for longer prompts.
+
+**How Prefilling Works:**
+
+1. **Initial Batch Processing**:
+   - As shown in the diagram, we start with the multi-token prompt "I love"
+   - Instead of processing "I" and then "love" separately, we process both tokens in a single forward pass
+   - The transformer computes Q, K, and V for both tokens simultaneously
+
+2. **Efficient KV Cache Initialization**:
+   - The K and V tensors for all prompt tokens are computed once and stored in the KV Cache
+   - This immediately populates the cache with entries for "I" and "love"
+   - The attention computation is performed for all prompt tokens at once
+
+3. **Transitioning to Token-by-Token Generation**:
+   - After prefilling, we switch to the standard token-by-token generation process
+   - For the next token, we only need to process the newly generated token (e.g., "pepperoni")
+   - We compute Q, K, and V for this new token only
+   - We extend the KV Cache with the new K and V values
+   - We compute attention using the new Q and the cached K and V values
+
+**Benefits of Prefilling:**
+
+1. **Computational Efficiency**:
+   - Processing the entire prompt at once leverages the transformer's parallel processing capabilities
+   - This is much faster than processing each token of the prompt sequentially
+   - For long prompts, the speedup can be substantial
+
+2. **Reduced Latency**:
+   - Users experience lower latency when providing longer prompts
+   - The model can begin generating new tokens more quickly
+
+3. **Optimal Use of Hardware**:
+   - Modern GPUs and TPUs are designed for batch processing
+   - Prefilling takes advantage of this by processing multiple tokens in parallel
+   - This results in better hardware utilization
+
+
 
 <br><br>
 
@@ -2069,341 +2416,3 @@ This technique is particularly valuable in multimodal models like PaliGemma, whe
 <br><br>
 
 ---
-
-## KV Cache
-
-The KV Cache is a crucial optimization technique for transformer models during inference. Before diving into how it works, let's understand the problems it solves by examining how transformers operate during training versus inference.
-
-### The Problem: Inefficient Inference in Transformers
-
-![train-transformer](resources/train-transformer.png)
-
-#### How Transformers Work During Training
-
-Transformers are fundamentally sequence-to-sequence models. During training:
-
-1. **Parallel Processing**: We feed the model N tokens as input and receive N contextualized token embeddings as output.
-
-2. **Contextualized Embeddings**: As shown in the diagram above, when we train on a sentence like "I love pepperoni pizza":
-   - Each input token is converted to an embedding
-   - The transformer processes all tokens simultaneously
-   - The output consists of contextualized embeddings for each position
-
-3. **Context Capturing**: The nature of the context captured depends on the attention mask used:
-   - With a **causal mask** (used in decoder-only models like Gemma): Each token can only attend to itself and previous tokens
-     - In the diagram bove, we have the four boxes above the transformer box that oversimplifies as 1 token equals 1 word. However, each of these tokens that are outputted from the transformer are now contextualized embeddings
-     - Example: When processing "I love pepperoni pizza", the word "love" can only attend to "I" and itself
-     - Example: The word "pizza" can attend to "I", "love", "pepperoni", and itself, but not to any future tokens
-   - Without a mask (used in encoder models like SigLIP): Each token can attend to all tokens in the sequence
-     - Example: When processing an image, each patch can attend to all other patches regardless of position
-     - Example: In a bidirectional encoder, the word "pepperoni" can attend to both "I love" before it and "pizza" after it
-
-4. **Next Token Prediction**: During training, the model learns to predict the next token in the sequence:
-   - For the 1st position contains information about itself and previous tokens: "I"
-     - It learns to predict "love" (green text above the contextualized embeddings)
-   - For the 2nd position contains information about itself and previous tokens: "I love"
-     - It learns to predict "pepperoni"
-   - For the 3rd position contains information about itself and previous tokens: "I love pepperoni" 
-     - It learns to predict "pizza"
-   - For the 4th position contains information about itself and previous tokens: "I love pepperoni pizza" 
-     - It learns to predict EOS (End of Sentence)
-
-5. **Efficient Batch Processing**: This approach is computationally efficient during training because:
-   - All tokens are processed in parallel
-   - A single forward pass handles the entire sequence
-   - The loss is calculated across all positions simultaneously
-
-<br>
-
----
-
-#### How Transformers Work During Inference
-
-During inference (text generation), the process is fundamentally different from training. Let's examine how it works and why it becomes inefficient:
-
-![inference-transformer1](resources/inference-transformer1.png)
-
-1. **Starting with a Prompt**: 
-   - Let's say a user provides the prompt "I" and we want to generate a continuation
-   - Assuming our model was trained on sequences like "I love pepperoni pizza"
-
-2. **First Token Generation**:
-   - We feed the single token "I" to the transformer
-   - The transformer (as a seq2seq model) processes this token and outputs a single contextualized embedding
-   - This embedding contains information about the token "I" and its position
-
-3. **Logits and Probability Distribution**:
-   - The contextualized embedding is passed through the linear layer to produce logits
-   - Each logit corresponds to a score for a token in the model's vocabulary (which can be tens of thousands of tokens)
-   - Logits represent the model's raw prediction scores before normalization
-   - These logits are then passed through a softmax function to convert them to a probability distribution
-   - The softmax ensures all probabilities sum to 1, creating a valid distribution over the vocabulary
-
-4. **Token Sampling**:
-   - We sample from this probability distribution to select the next token
-   - In the simplest case (greedy sampling), we select the token with the highest probability
-   - Other sampling methods include:
-     - **Temperature sampling**: Controls randomness by scaling logits before softmax
-     - **Top-k sampling**: Restricts sampling to the k most likely tokens
-     - **Top-p (nucleus) sampling**: Samples from the smallest set of tokens whose cumulative probability exceeds p
-   - For our example, let's say the model predicts "love" as the next token
-
-5. **Generating the Next Token**:
-   - Now we need to generate the next token after "I love"
-
-![inference-transformer2](resources/inference-transformer2.png)
-
-6. **Feeding Back the Output**:
-   - We append the generated token "love" to our input, creating "I love"
-   - We feed this new sequence to the transformer
-   - The transformer now processes both tokens and outputs two contextualized embeddings
-   - Each embedding contains information about its position and all previous tokens (due to the causal mask)
-
-7. **Using Only the Last Embedding**:
-   - Although we get two contextualized embeddings, we only need the last one (for "love")
-   - This embedding contains information about both "I" and "love"
-   - We convert this embedding to logits, apply softmax, and sample again
-   - Let's say we get "pepperoni" as the next token
-
-8. **Continuing the Process**:
-   - We append "pepperoni" to get "I love pepperoni"
-   - Feed this to the transformer, get three contextualized embeddings
-   - Use only the last embedding to predict the next token
-   - Sample "pizza" as the next token
-   - Continue until we generate an end-of-sequence token or reach a maximum length
-
-##### The Inefficiency Problem During Inference
-
-This autoregressive (generating one token at a time, with each new token depending on all previous tokens) generation process has a fundamental inefficiency:
-
-1. **Redundant Computation**:
-   - Each time we add a new token, we recompute all previous tokens' representations
-   - For the sequence "I love pepperoni":
-     - We process "I" once when generating "love"
-     - We process "I" and "love" again when generating "pepperoni"
-     - We process "I", "love", and "pepperoni" again when generating "pizza"
-   - This means we're repeatedly performing the same computations
-
-2. **Wasted Embeddings**:
-   - We generate contextualized embeddings for all tokens in the sequence
-   - But we only use the last embedding for prediction
-   - All other embeddings are essentially wasted computation
-
-3. **Attention Mechanism Overhead**:
-   - The attention mechanism computes a large matrix of attention scores
-   - For a sequence of length n, we compute an n×n attention matrix
-     - E.g. 1000 tokens creates 1000x1000 matrix
-   - As the sequence grows, this matrix grows quadratically
-   - Most of these computations are repeated from previous steps
-
-4. **Computational Complexity**:
-   - For a sequence of length N, the naive approach requires:
-     - Processing token 1: 1 token computation
-     - Processing tokens 1-2: 2 token computations
-     - Processing tokens 1-3: 3 token computations
-     - ...and so on
-   - Total: 1 + 2 + 3 + ... + N = N(N+1)/2 token computations
-   - This is O(N²) complexity, which becomes prohibitive for long sequences
-
-5. **Memory Usage**:
-   - Each forward pass requires storing activations for all layers
-   - As the sequence grows, memory requirements increase linearly
-   - This can limit the maximum sequence length that can be processed
-
-This inefficiency becomes particularly problematic for applications requiring real-time text generation or processing of long sequences. The KV Cache technique addresses these issues by storing and reusing intermediate computations, which we'll explore in the next section.
-
-<br>
-
----
-
-### How KV Cache Works
-
-Now that we understand the inefficiency problem during inference, let's explore how KV Cache solves it by eliminating redundant computations.
-
-![kv-cache](resources/kv-cache.png)
-
-#### The Key Insight: Reusing Past Computations
-
-The fundamental insight behind KV Cache is that we don't need to recompute the Key (K) and Value (V) tensors for previously processed tokens. Let's break down how this works:
-
-1. **Understanding Attention Computation**:
-   - In the top portion of the diagram, we see the standard attention formula: `(Q × K^T) / √d_head + mask`
-   - For a sequence like "I love pepperoni":
-     - Q (Query): Represents what each token is "looking for"
-     - K (Key): Represents what each token "contains"
-     - V (Value): Represents the actual content of each token
-
-2. **Attention Matrix Structure**:
-   - The top-right matrix in the diagram shows the attention scores for "I love pepperoni"
-   - Rows represent queries (what each token is looking for)
-   - Columns represent keys (what each token contains)
-   - Each cell contains the compatibility score between a query and a key
-   - For example, the value 0.4 in the middle row, second column represents how much "love" attends to "love"
-
-3. **Matrix Multiplication with Values**:
-   - In the middle of the diagram, we see this attention matrix being multiplied by the V sequence
-   - The V sequence has dimensions (3, 128), meaning 3 tokens each with a 128-dimensional representation
-   - This multiplication produces the contextualized embeddings shown at the bottom
-
----
-
-#### The Crucial Observation
-
-The key insight is that when generating the next token after "I love pepperoni", we only need:
-
-1. **The last row of the attention matrix** (3, 3) matrix: The query for "pepperoni" attending to all previous keys (columns)
-2. **All columns of the V matrix** (3, 128) matrix: The value representations of all tokens
-
-Looking at the diagram, we can see exactly how each value in the contextualized embedding is computed:
-
-For the contextualized embedding of "I love pepperoni" (the last row in the bottom of the diagram):
-- The first value 1 is computed by:
-  * Taking the last row of the attention matrix (pepperoni) [0.2, 0.4, 0.4]
-  * Multiplying it with the first column of the V matrix [1, 1, 1]
-
-- The second value 2 is computed by:
-  * Taking the same attention row (pepperoni) [0.2, 0.4, 0.4]
-  * Multiplying it with the second column of the V matrix [2, 2, 2]
-
-This pattern continues for all 128 dimensions of the contextualized embedding. The critical efficiency comes from reusing the K and V matrices for previous tokens, meaning we don't need to recompute the entire attention matrix for each new token - we just need to extend it with one new row and one new column.
-
-![kv-cache2](resources/kv-cache2.png)
-
-#### KV Cache in Action: Step by Step
-
-Let's walk through the process using the second diagram, which shows how KV Cache works in practice:
-
-1. **Initial Token Processing**:
-   - Starting with the prompt "I" (top of the diagram)
-   - The token is embedded and fed to the transformer
-   - The transformer converts it to Query (Q), Key (K), and Value (V) representations
-   - Self-attention is computed, producing a contextualized embedding
-   - This embedding is converted to logits, softmax is applied, and we sample "love"
-
-2. **Storing in KV Cache**:
-   - The Key (K) and Value (V) tensors for "I" are stored in a buffer called the KV Cache
-   - Initially empty, the KV Cache now contains K and V for "I"
-
-3. **Processing the Next Token**:
-   - **Critical difference**: Instead of feeding "I love" as input previously without the KV cache, we only feed the new token "love"
-   - This is a major departure from the naive approach and the source of efficiency
-   - The transformer processes only this single token, computing Q, K, and V for "love"
-
-4. **Extending the KV Cache**:
-   - The K and V tensors for "love" are appended to the KV Cache
-   - The KV Cache now contains K and V for both "I" and "love"
-
-5. **Computing Attention Efficiently**:
-   - The Query (Q) for "love" is computed from the current token
-   - But instead of recomputing K and V for all tokens, we use the stored values from the KV Cache
-   - Self-attention is computed using:
-     - Q for the current token "love"
-     - K and V for all tokens so far ("I" and "love") from the cache
-
-6. **Generating the Next Token**:
-   - The resulting contextualized embedding for "love" is used to predict the next token
-   - After applying the linear layer and softmax, we sample "pepperoni"
-
-7. **Continuing the Process**:
-   - For the next step, we only feed "pepperoni" as input
-   - Compute Q, K, and V for "pepperoni"
-   - Append K and V to the KV Cache (now containing "I", "love", and "pepperoni")
-   - Compute attention using Q for "pepperoni" and K, V from the cache
-   - Generate the next token ("pizza")
-   - And so on...
-
----
-
-#### Why This Is Efficient
-
-The KV Cache approach dramatically reduces computation:
-
-1. **Processes Only One Token at a Time**:
-   - Instead of processing the entire sequence for each new token
-   - We only process the new token, computing Q, K, and V just once
-
-2. **Eliminates Redundant Computations**:
-   - K and V for each token are computed exactly once
-   - They're stored and reused for all future tokens
-   - This changes the complexity from O(N²) to O(N)
-
-3. **Memory-Computation Tradeoff**:
-   - We trade increased memory usage (storing the KV Cache)
-   - For drastically reduced computation (avoiding redundant processing)
-   - This is an excellent tradeoff for inference, where speed is critical
-
-4. **Perfect for Autoregressive Generation**:
-   - Ideally suited for the token-by-token generation process
-   - Each new token only requires a small amount of new computation
-   - The generation speed remains relatively constant regardless of sequence length
-
----
-
-#### Implementation Considerations
-
-In practice, implementing KV Cache requires:
-
-1. **Memory Management**:
-   - Allocating sufficient memory to store K and V for potentially long sequences
-   - Implementing efficient memory access patterns
-
-2. **Attention Mask Handling**:
-   - Ensuring the causal mask is properly extended for each new token
-   - Maintaining the autoregressive property (each token can only attend to itself and previous tokens)
-
-3. **Batch Processing**:
-   - Supporting batched inference for multiple sequences
-   - Managing separate KV Caches for each sequence in the batch
-
-4. **Memory Limitations**:
-   - For very long sequences, the KV Cache can grow quite large
-   - Strategies like sliding window attention or cache pruning may be needed
-
-By using KV Cache, transformer models like PaliGemma can generate text much more efficiently, making real-time applications feasible even with limited computational resources.
-
----
-
-##### Prefilling: Optimizing for Longer Prompts (Batch Processing)
-
-![kv-cache3](resources/kv-cache3.png)
-
-In real-world applications, users often provide multi-token prompts rather than single tokens. For example, instead of just "I", a user might input "I love" and ask the model to continue. This scenario introduces an optimization technique called "prefilling."
-
-**What is Prefilling?**
-
-Prefilling is the process of initializing the KV Cache with all tokens from the initial prompt in a single forward pass, rather than processing them one by one. This is particularly efficient for longer prompts.
-
-**How Prefilling Works:**
-
-1. **Initial Batch Processing**:
-   - As shown in the diagram, we start with the multi-token prompt "I love"
-   - Instead of processing "I" and then "love" separately, we process both tokens in a single forward pass
-   - The transformer computes Q, K, and V for both tokens simultaneously
-
-2. **Efficient KV Cache Initialization**:
-   - The K and V tensors for all prompt tokens are computed once and stored in the KV Cache
-   - This immediately populates the cache with entries for "I" and "love"
-   - The attention computation is performed for all prompt tokens at once
-
-3. **Transitioning to Token-by-Token Generation**:
-   - After prefilling, we switch to the standard token-by-token generation process
-   - For the next token, we only need to process the newly generated token (e.g., "pepperoni")
-   - We compute Q, K, and V for this new token only
-   - We extend the KV Cache with the new K and V values
-   - We compute attention using the new Q and the cached K and V values
-
-**Benefits of Prefilling:**
-
-1. **Computational Efficiency**:
-   - Processing the entire prompt at once leverages the transformer's parallel processing capabilities
-   - This is much faster than processing each token of the prompt sequentially
-   - For long prompts, the speedup can be substantial
-
-2. **Reduced Latency**:
-   - Users experience lower latency when providing longer prompts
-   - The model can begin generating new tokens more quickly
-
-3. **Optimal Use of Hardware**:
-   - Modern GPUs and TPUs are designed for batch processing
-   - Prefilling takes advantage of this by processing multiple tokens in parallel
-   - This results in better hardware utilization
