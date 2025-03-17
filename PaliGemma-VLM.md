@@ -1409,6 +1409,12 @@ In the diagram above, we can see PaliGemma's attention mask structure:
      - All prefix tokens (the purple columns)
      - Only previous output tokens (forming a triangular pattern in the bottom-right)
 
+   If causality was applied to prefix tokens as well, the attention mask would look different:
+   - The purple-boxed area would show a triangular pattern instead of full attention
+   - Each prefix token would only be able to attend to itself and previous tokens
+   - For example, inp2 would not be able to attend to [sep], creating a lower-triangular pattern in the prefix section
+   - This would restrict information flow within the prompt, potentially limiting understanding of complex instructions
+
 ---
 
 ##### Why This Approach Makes Sense for PaliGemma
