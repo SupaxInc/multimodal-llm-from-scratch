@@ -75,6 +75,17 @@ class PaliGemmaConfig():
         self.text_config.num_image_tokens = (self.vision_config.image_size // self.vision_config.patch_size) ** 2
         self.vision_config.projection_dim = projection_dim
 
+class PaliGemmaMultiModalProjector(nn.Module):
+    def __init__(self, config: PaliGemmaConfig):
+        super().__init__()
+        # Linear layer that converts the hidden size of vision model into projection dimensions 
+        self.linear = nn.Linear(config.vision_config.hidden_size, config.vision_config.projection_dim, bias=True)
+
+    def forward(self, image_features):
+        # [B, num_patches, embed_dim] -> [B, num_patches, projection_dim]
+        hidden_states = self.linear(image_features)
+        return hidden_states
+
 class PaliGemmaForConditonalGeneration(nn.Module):
     def __init__(self, config: PaliGemmaConfig):
         super().__init__()
