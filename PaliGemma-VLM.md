@@ -1409,12 +1409,6 @@ In the diagram above, we can see PaliGemma's attention mask structure:
      - All prefix tokens (the purple columns)
      - Only previous output tokens (forming a triangular pattern in the bottom-right)
 
-   If causality was applied to prefix tokens as well, the attention mask would look different:
-   - The purple-boxed area would show a triangular pattern instead of full attention
-   - Each prefix token would only be able to attend to itself and previous tokens
-   - For example, inp2 would not be able to attend to [sep], creating a lower-triangular pattern in the prefix section
-   - This would restrict information flow within the prompt, potentially limiting understanding of complex instructions
-
 ---
 
 ##### Why This Approach Makes Sense for PaliGemma
@@ -2466,6 +2460,8 @@ The image above shows the output portion of a decoder-only transformer architect
 
 The final linear layer is particularly important for weight tying, as it converts the model's hidden representations back to vocabulary-sized logits where it is then passed through a softmax to normalize the values into a probability distribution over the vocabulary that ensures all output probabilities sum to 1.
 
+---
+
 ### The Symmetry Between Input and Output Layers
 
 There's a natural symmetry between the input embedding layer and the output linear layer:
@@ -2484,6 +2480,8 @@ There's a natural symmetry between the input embedding layer and the output line
 
 These operations are essentially inverses of each other, which makes them ideal candidates for parameter sharing.
 
+---
+
 ### Benefits of Weight Tying
 
 1. **Parameter Efficiency**:
@@ -2501,6 +2499,8 @@ These operations are essentially inverses of each other, which makes them ideal 
 3. **Performance Maintenance or Improvement**:
    - Research has shown that models with tied weights often perform as well or better than those without
    - The constraint of shared weights can guide the model toward more meaningful representations
+
+---
 
 ### What Are Parameters?
 
