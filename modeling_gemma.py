@@ -120,7 +120,7 @@ class GemmaModel(nn.Module):
             )
         
         # [B, seq_len, hidden_size]
-        hidden_states = self.normal(hidden_states)
+        hidden_states = self.norm(hidden_states)
 
         # [B, seq_len, hidden_size]
         return hidden_states

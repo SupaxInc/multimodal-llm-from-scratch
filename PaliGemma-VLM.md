@@ -31,6 +31,10 @@
       - [Step 4: Linear Projection](#step-4-linear-projection)
     - [Example: Processing a Single Input](#example-processing-a-single-input)
   - [3) Gemma 2B Language Model](#3-gemma-2b-language-model)
+    - [Transformer Decoder Architecture and Flow](#transformer-decoder-architecture-and-flow)
+      - [From Embeddings to Outputs](#from-embeddings-to-outputs)
+      - [Visualization: Data Flow Through the Transformer Architecture](#visualization-data-flow-through-the-transformer-architecture)
+      - [Code Implementation](#code-implementation)
     - [KV Cache](#kv-cache)
       - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
         - [How Transformers Work During Training](#how-transformers-work-during-training)
@@ -1031,6 +1035,120 @@ This unified representation allows the language model to reason about both the i
 <br>
 
 ## 3) Gemma 2B Language Model
+
+### Transformer Decoder Architecture and Flow
+
+![transformer-architecture-outputs](resources/transformer-architecture-outputs.png)
+
+The image above shows the output portion of a decoder-only transformer architecture. It is explained further below on how it is modified in the Gemma 2B language model.
+
+The Gemma 2B language model functions as the decoder component of PaliGemma, processing the combined embeddings from both image and text tokens. Let's examine how data flows through this architecture and how it's implemented in the code.
+
+---
+
+#### From Embeddings to Outputs
+
+After merging image features with text token embeddings (from the `_merge_input_ids_with_image_features` method in `PaliGemmaForConditonalGeneration` within `modeling_gemma.py`), the combined embeddings flow through the transformer decoder architecture:
+
+1. **Input Processing**
+   - The combined embeddings enter the decoder without explicit positional encodings
+   - Instead, Rotary Positional Encodings (RoPE) are applied within the attention mechanism
+   - This is handled by the position_ids parameter which is passed to each decoder layer
+
+2. **Transformer Layer Stack**
+   - The embeddings pass through multiple identical transformer decoder layers (`GemmaDecoderLayer`)
+   - Each layer consists of:
+     - **RMS Normalization** - A variant of layer normalization that uses root mean square
+     - **Self-Attention** - Multi-head attention with rotary positional encodings
+     - **Skip Connection** - Adds the original input to the attention output
+     - **RMS Normalization** - Another normalization before feed-forward
+     - **Feed-Forward Network** - Typically expands dimensions, applies non-linearity, then projects back
+     - **Skip Connection** - Adds the normalized input to the feed-forward output
+
+3. **Final Processing**
+   - After passing through all transformer layers, the output goes through:
+     - **Final RMS Normalization** (`self.norm` in `GemmaModel`)
+     - **Linear Layer** (`self.lm_head` in `GemmaForCausalLM`) - Projects to vocabulary dimensions
+     - **Softmax** (applied during inference) - Converts logits to probability distribution
+
+---
+
+#### Visualization: Data Flow Through the Transformer Architecture
+
+```
+                        ┌───────────────────────────────────────────────┐
+                        │        Merged Image & Text Embeddings         │
+                        └───────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                    GemmaModel                                       │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│  │                              GemmaDecoderLayer × N                          │    │
+│  │  ┌──────────────────┐     ┌─────────────────┐     ┌────────────────────┐    │    │
+│  │  │  RMS Norm        │     │  Self-Attention │     │      Skip          │    │    │
+│  │  │  (Pre-Attention) │ ──► │  with RoPE      │ ──► │   Connection +     │    │    │
+│  │  └──────────────────┘     └─────────────────┘     └────────────────────┘    │    │
+│  │                                                              │              │    │
+│  │                                                              ▼              │    │
+│  │  ┌──────────────────┐     ┌─────────────────┐     ┌────────────────────┐    │    │
+│  │  │   RMS Norm       │     │  Feed Forward   │     │      Skip          │    │    │
+│  │  │   (Pre-FFN)      │ ──► │  Network        │ ──► │   Connection +     │    │    │
+│  │  └──────────────────┘     └─────────────────┘     └────────────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────────────────┘    │
+│                                          │                                          │
+│                                          ▼                                          │
+│                              ┌──────────────────────┐                               │
+│                              │    Final RMS Norm    │                               │
+│                              └──────────────────────┘                               │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼ 
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                GemmaForCausalLM                                     │
+│                              ┌──────────────────────┐                               │
+│                              │ Linear Layer(lm_head)│                               │
+│                              └──────────────────────┘                               │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+                              ┌──────────────────────┐
+                              │       Softmax        │
+                              └──────────────────────┘
+                                          │
+                                          ▼
+                              ┌──────────────────────┐
+                              │ Output Probabilities │
+                              └──────────────────────┘
+```
+
+---
+
+#### Code Implementation
+
+The architecture is implemented in `modeling_gemma.py` through several key classes:
+
+1. `GemmaModel`: The core transformer model
+   - Contains embedding layer, multiple transformer decoder layers, and final normalization
+   - Processes token embeddings through the entire stack
+
+2. `GemmaDecoderLayer`: Individual transformer layers (not shown in the provided code snippet)
+   - Implements attention + normalization + feed-forward + skip connections
+   - Applies rotary positional encodings within attention mechanism
+
+3. `GemmaForCausalLM`: Extends GemmaModel with output projection
+   - Adds the linear layer that converts hidden states to vocabulary-sized logits
+   - Returns logits that can be used for next token prediction
+
+4. `GemmaRMSNorm`: Root Mean Square Normalization (not shown in the provided code snippet)
+   - Variant of layer normalization used throughout the model
+   - Helps stabilize training and improves performance
+
+This architecture follows the standard transformer decoder pattern but uses specific optimizations like RMS normalization and rotary positional encodings that make Gemma particularly effective for language modeling tasks.
+
+<br>
+
+---
 
 ### KV Cache
 
