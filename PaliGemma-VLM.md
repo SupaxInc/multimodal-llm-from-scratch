@@ -35,6 +35,10 @@
       - [From Embeddings to Outputs](#from-embeddings-to-outputs)
       - [Visualization: Data Flow Through the Transformer Architecture](#visualization-data-flow-through-the-transformer-architecture)
       - [Code Implementation](#code-implementation)
+    - [RMS Normalization in Gemma](#rms-normalization-in-gemma)
+      - [Layer Normalization vs. RMS Normalization](#layer-normalization-vs-rms-normalization)
+      - [Why RMS Works: Rescaling vs. Recentering](#why-rms-works-rescaling-vs-recentering)
+      - [Benefits of RMS Normalization](#benefits-of-rms-normalization)
     - [KV Cache](#kv-cache)
       - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
         - [How Transformers Work During Training](#how-transformers-work-during-training)
@@ -1147,6 +1151,112 @@ The architecture is implemented in `modeling_gemma.py` through several key class
 This architecture follows the standard transformer decoder pattern but uses specific optimizations like RMS normalization and rotary positional encodings that make Gemma particularly effective for language modeling tasks.
 
 <br>
+
+---
+
+### RMS Normalization in Gemma
+
+![rms_normalization1](resources/rms_normalization1.png)
+
+Gemma uses Root Mean Square (RMS) normalization instead of the standard layer normalization. Let's understand why this optimization matters and how it works.
+
+---
+
+#### Layer Normalization vs. RMS Normalization
+
+**Traditional Layer Normalization:**
+
+In standard layer normalization, which is common in many transformer architectures, we normalize each feature vector by both recentering (shifting to zero mean) and rescaling (to unit variance):
+
+1. For each item (e.g., "cat", "dog", "zebra" in the diagram above), we compute:
+   - The mean (μ) across all features in the vector
+   - The standard deviation (σ) across all features
+
+2. We then apply the normalization formula:
+
+   $$\text{LayerNorm}(x) = \gamma \cdot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta$$
+
+   Where:
+   - x is the input vector
+   - μ is the mean of the features
+   - σ is the standard deviation
+   - γ and β are learnable parameters
+   - ε is a small constant for numerical stability
+
+3. This transforms the distribution of features to have mean 0 and variance 1 (a Gaussian distribution centered at 0)
+
+<br>
+
+**Root Mean Square Normalization:**
+
+RMS normalization simplifies this process by eliminating the recentering step, based on the insight that the rescaling invariance is what truly matters for reducing covariate shift in deep networks.
+
+1. For each input vector, we compute a single statistic - the root mean square:
+
+   $$\text{RMS}(x) = \sqrt{\frac{1}{n} \sum_{i=1}^{n} x_i^2}$$
+
+   Where:
+   - x is the input vector
+   - n is the number of elements in the vector
+
+2. We then apply the normalization formula:
+
+   $$\text{RMSNorm}(x) = \gamma \cdot \frac{x}{\text{RMS}(x) + \epsilon}$$
+
+   Where:
+   - γ is a learnable parameter (weight)
+   - ε is a small constant for numerical stability
+
+<br>
+
+---
+
+#### Why RMS Works: Rescaling vs. Recentering
+
+The key insight behind RMS normalization comes from analyzing what makes layer normalization effective:
+
+1. **Rescaling Invariance is What Matters:**
+   - Research suggests that the success of layer normalization isn't primarily due to its recentering (shifting to zero mean)
+   - Rather, the crucial factor is rescaling (normalizing the magnitude of activations)
+   - This keeps features from exploding or vanishing during training
+
+2. **Mean Independence:**
+   - Looking at the examples in the diagram, the actual mean of the feature values doesn't need to be zero
+   - What matters is that the values cluster around *some* consistent mean (whether that's 0, 500, or -100)
+   - The important part is reducing the variance to stabilize training
+
+3. **Variance Reduction:**
+   - For the "cat" features shown in the first row, they don't need to be centered at 0
+   - They can be centered at any value, as long as their spread (variance) is controlled
+   - This is exactly what RMS normalization achieves - controlling the magnitude without shifting the mean
+
+<br>
+
+---
+
+#### Benefits of RMS Normalization
+
+1. **Computational Efficiency:**
+   - Computes only one statistic (RMS) instead of two (mean and standard deviation)
+   - Eliminates the need to calculate and subtract the mean
+   - This results in fewer operations and potentially faster training/inference
+
+2. **Memory Efficiency:**
+   - Fewer intermediate values to store during computation
+   - Particularly beneficial for large language models with billions of parameters
+
+3. **Empirical Performance:**
+   - In practice, models using RMS normalization often train at least as well as those with layer normalization
+   - Gemma specifically uses RMS normalization throughout its architecture
+   - The GemmaRMSNorm class in the code implements this functionality
+
+4. **Implementation:**
+   - In the Gemma implementation, RMS normalization is applied:
+     - Before each attention module
+     - Before each feed-forward network
+     - As the final normalization before the output projection
+
+<br><br>
 
 ---
 
