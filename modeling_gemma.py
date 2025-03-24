@@ -132,6 +132,27 @@ class GemmaRMSNorm(nn.Module):
         # See https://github.com/huggingface/transformers/pull/29402
         output = output * (1.0 + self.weight.float())
         return output.type_as(x)
+    
+# * Multi-layer perceptron (Feed forward network) *
+class GemmaMLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        # New gate projection layer as Gemma has a different activation functions compared ot other language models
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+    
+    def forward(self, x):
+        # The projection below is Equivalent to:
+            # y = self.gate_proj(x),                 [B, seq_len, hidden__states] -> [B, seq_len, intermediate_size]
+            # y = torch.gelu(y, approximate="tanh"), [B, seq_len, intermediate_size]
+            # j = self.up_proj(x)                    [B, seq_len, hidden_size] -> [B, seq_len, intermediate_size]
+            # z = y * j                              [B, seq_len, intermediate_size]
+            # z = self.down_proj(z)                  [B, seq_len, intermediate_size] -> [B, seq_len, hidden_size]
+        return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
 
 # * Transformer layers for Gemma model consisting of attention, FFN, and RMS normalization *
 class GemmaDecoderLayer(nn.Module):
