@@ -115,6 +115,7 @@ class PaliGemmaConfig():
         self.text_config.num_image_tokens = (self.vision_config.image_size // self.vision_config.patch_size) ** 2
         self.vision_config.projection_dim = projection_dim
 
+# * RMS Normalization Layer *
 class GemmaRMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
         super().__init__()
@@ -153,6 +154,33 @@ class GemmaMLP(nn.Module):
             # z = y * j                              [B, seq_len, intermediate_size]
             # z = self.down_proj(z)                  [B, seq_len, intermediate_size] -> [B, seq_len, hidden_size]
         return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
+
+class GemmaAttention(nn.Module):
+    def __init__(self, config: GemmaConfig, layer_idx: Optional[int] = None):
+        super().__init__()
+        self.config = config
+        # Position of the layer in the transformer, helps know which KV cache to use for each layer
+        self.layer_idx = layer_idx 
+        
+        self.attention_dropout = config.attention_dropout
+        self.hidden_size = config.hidden_size
+        self.num_heads = config.num_attention_heads
+        self.head_dim = config.head_dim
+        self.num_key_value_heads = config.num_key_values_heads
+        self.num_key_value_groups = self.num_heads // self.num_key_value_heads
+        self.max_position_embeddings = config.max_position_embeddings
+        self.rope_theta = config.rope_theta
+        self.is_causal = True
+
+        # Make sure that hidden size is divisible by number of heads
+            # Each head has to watch a part of the embedding of the entire token so it must be divisible
+        assert self.hidden_size % self.num_heads == 0
+
+        # Different to modeling_siglip.py attention
+        self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias)
+        self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
+        self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
+        self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=config.attention_bias)
 
 # * Transformer layers for Gemma model consisting of attention, FFN, and RMS normalization *
 class GemmaDecoderLayer(nn.Module):
