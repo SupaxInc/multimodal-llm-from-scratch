@@ -40,6 +40,9 @@
       - [Layer Normalization vs. RMS Normalization](#layer-normalization-vs-rms-normalization)
       - [Why RMS Works: Rescaling vs. Recentering](#why-rms-works-rescaling-vs-recentering)
       - [Benefits of RMS Normalization](#benefits-of-rms-normalization)
+    - [Attention Mechanisms](#attention-mechanisms)
+      - [Multi-Head Attention (Gemma)](#multi-head-attention-gemma)
+      - [Grouped-Query Attention (Gemma)](#grouped-query-attention-gemma)
     - [KV Cache](#kv-cache)
       - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
         - [How Transformers Work During Training](#how-transformers-work-during-training)
@@ -900,6 +903,8 @@ SigLip's vision encoder employs multi-head attention to create contextual repres
 - The architecture follows the standard transformer pattern with query, key, and value projections
 - Each attention head operates in a lower-dimensional space (typically 64-128 dimensions)
 
+Key differences from Gemma's implementation include the use of standard positional embeddings rather than rotary embeddings, the bidirectional nature of attention versus Gemma's causal masking, and the focus on spatial rather than sequential relationships. See [Multi-Head Attention (Gemma)](#multi-head-attention-gemma) for details on the language model implementation.
+
 This mechanism is essential for the encoder to understand complex visual structures and relationships between different regions of an image. For a comprehensive explanation of how multi-head attention works, see the [Multi-Head Attention](#multi-head-attention) section.
 
 <br>
@@ -1271,6 +1276,143 @@ The key insight behind RMS normalization comes from analyzing what makes layer n
      - As the final normalization before the output projection
 
 <br><br>
+
+---
+
+### Attention Mechanisms
+
+#### Multi-Head Attention (Gemma)
+
+Gemma's language model component implements multi-head attention with several key features and differences compared to SigLip's vision encoder:
+
+- Uses **causal (masked) attention** where each token can only attend to itself and previous tokens
+- Implements **Rotary Positional Encodings (RoPE)** directly within the attention mechanism instead of separate positional embeddings
+- Typically employs multiple attention heads (16-32 in Gemma 2B) operating in parallel
+- Creates autoregressive text generation capabilities, unlike SigLip's bidirectional image understanding
+- Applies attention masking to enforce the sequential nature of language processing
+- Each attention layer is preceded by RMS Normalization rather than standard Layer Normalization
+
+This causal attention mechanism is critical for the language model's ability to predict the next token based on previous context. Combined with the vision features from SigLip, it enables the model to generate text that references and reasons about visual content.
+
+For a comprehensive explanation of multi-head attention mechanics, see the [Multi-Head Attention](#multi-head-attention) section in Random Teachings.
+
+---
+
+#### Grouped-Query Attention (Gemma)
+
+![grouped-query-attention1](resources/grouped-query-attention1.png)
+
+Gemma implements Grouped-Query Attention (GQA), an optimization technique that improves inference efficiency while maintaining model quality. GQA addresses a critical bottleneck in transformer inference: memory bandwidth limitations between GPU memory tiers.
+
+**Traditional Multi-Head Attention Computation Process**
+
+Looking at the diagram in grouped-query-attention1.png:
+- Each row represents how attention heads process the 1024-dimensional embedding:
+  - The top row (Q) shows how the query is divided into 8 heads, each handling 128 dimensions
+  - Head 1 processes dimensions 1-128, Head 2 processes 129-256, and so on
+  - The last three rows (K) represent previously computed and cached keys (K1, K2, K3)
+
+During inference with KV cache:
+1. For each new token, we generate a query (Q) with 8 attention heads
+2. This query must interact with all previously generated keys (K1, K2, K3, etc.)
+3. Each query head must perform dot product operations with its corresponding key head
+4. For example:
+   - Query Head 1 (dims 1-128) computes similarity with Key 1 Head 1, Key 2 Head 1, Key 3 Head 1...
+   - Query Head 2 (dims 129-256) computes similarity with Key 1 Head 2, Key 2 Head 2, Key 3 Head 2...
+   - This process repeats for all 8 heads in parallel
+
+**The GPU Memory Hierarchy Bottleneck**
+
+![gpu-diagram1](resources/gpu-diagram1.png)
+
+As shown in gpu-diagram1.png, the GPU architecture creates a fundamental bottleneck:
+- High-bandwidth memory (HBM, ~GB) stores the full model weights and KV cache
+- Local/shared memory (~MB) is where actual computations occur
+- Multiple processing cores (shown at the bottom) operate in parallel on chunks of data
+
+For matrix multiplication operations:
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Chunk 1 │     │ Chunk 1 │     │ Chunk 1 │
+├─────────┤     ├─────────┤     ├─────────┤
+│ Chunk 2 │  ×  │ Chunk 2 │  =  │ Chunk 2 │
+├─────────┤     ├─────────┤     ├─────────┤
+│ Chunk 3 │     │ Chunk 3 │     │ Chunk 3 │
+├─────────┤     ├─────────┤     ├─────────┤
+│ Chunk 4 │     │ Chunk 4 │     │ Chunk 4 │
+└─────────┘     └─────────┘     └─────────┘
+   Matrix A        Matrix B        Result
+```
+
+1. Matrices are divided into chunks
+2. Each chunk is loaded from HBM to local memory
+3. Cores process these chunks in parallel
+4. Results are combined and stored back to HBM
+
+**Multi-Head Attention Memory Transfer Bottleneck**
+
+The critical bottleneck in multi-head attention isn't computation but memory transfers:
+
+1. For each inference step with standard MHA, looking at grouped-query-attention1.png:
+   - Query Head 1 needs to access its corresponding key head from every previous token
+   - This requires transferring Key Head 1 data (dimensions 1-128) from all previous tokens
+   - Simultaneously, Query Head 2 needs Key Head 2 data (dimensions 129-256) from all tokens
+   - This pattern continues for all 8 heads
+
+2. As sequence length grows:
+   - Each new token requires 8 separate memory transfer operations from the KV cache
+   - With thousands of tokens, this creates massive memory bandwidth pressure
+   - The actual computation (dot products) happens very quickly once data is in local memory
+   - But cores frequently sit idle waiting for memory transfers to complete
+
+**How Grouped-Query Attention Addresses This Bottleneck**
+
+GQA fundamentally changes the memory transfer pattern:
+
+1. Instead of having 8 query heads each with their own matching key heads:
+   - We maintain 8 independent query heads (for expressivity)
+   - But reduce key/value heads to a smaller number (e.g., 2 or 4)
+   - Multiple query heads share the same key head
+
+2. Taking the example from grouped-query-attention1.png with 8 query heads but only 2 key heads:
+   - Query Heads 1-4 all use Key Head 1 (dimensions 1-128)
+   - Query Heads 5-8 all use Key Head 2 (dimensions 129-256)
+
+3. This dramatically reduces memory transfers:
+   - When processing a new token against the KV cache, we only need 2 memory transfers instead of 8
+   - Once Key Head 1 is loaded into local memory, it's reused by Query Heads 1-4
+   - This makes the process 4x more memory-efficient in this example
+
+This diagram illustrates the data sharing in GQA:
+```
+Standard MHA:              Grouped-Query Attention (GQA):
+                               
+Q₁ → K₁ (transfer)         Q₁ → K₁ (transfer)
+Q₂ → K₂ (transfer)         Q₂ → K₁ (reuse)
+Q₃ → K₃ (transfer)    vs.  Q₃ → K₁ (reuse)
+Q₄ → K₄ (transfer)         Q₄ → K₁ (reuse)
+Q₅ → K₅ (transfer)         Q₅ → K₂ (transfer)
+Q₆ → K₆ (transfer)         Q₆ → K₂ (reuse)
+Q₇ → K₇ (transfer)         Q₇ → K₂ (reuse)
+Q₈ → K₈ (transfer)         Q₈ → K₂ (reuse)
+```
+
+**Trade-offs in Grouped-Query Attention**
+
+The primary drawback of GQA is a reduction in model expressivity:
+- In standard MHA, each query head has its own corresponding key representation
+- With GQA, multiple query heads must share the same key representation
+- This limits the number of unique key-based relationships the model can capture
+- However, empirical results show that with proper tuning, the quality impact is minimal
+
+In practice, Gemma uses GQA as a carefully calibrated trade-off:
+- Query heads remain numerous to maintain representational capacity
+- Key/value heads are reduced to minimize memory bandwidth requirements
+- The grouping ratio (e.g., 4:1 or 2:1) is tuned to balance performance and efficiency
+
+By addressing the true bottleneck in inference (memory bandwidth rather than computation), GQA enables significantly faster text generation while maintaining output quality.
+
+<br>
 
 ---
 
@@ -1718,9 +1860,7 @@ This masking strategy offers several advantages when implemented with KV Cache:
    - The mask clearly separates the "understanding" phase (processing the prefix) from the "generation" phase (producing the output)
    - This aligns well with how humans process information: first understanding the full context, then generating a response
 
-<br><br>
-
----
+<br>
 
 # Random Teachings
 

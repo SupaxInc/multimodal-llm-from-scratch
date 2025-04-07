@@ -176,7 +176,14 @@ class GemmaAttention(nn.Module):
             # Each head has to watch a part of the embedding of the entire token so it must be divisible
         assert self.hidden_size % self.num_heads == 0
 
-        # Different to modeling_siglip.py attention
+        # Grouped Query Attention
+        # Difference with GQA is that we have less heads for keys and values which results in smaller projection for embeddings in keys and values
+        # Number of heads = 8
+        # Hidden_size = 1024
+        # Head_dim = 1024 / 8 = 128
+        # Wq: [1024, 8 * 128] = [1024, 1024]
+        # Wk: [1024, 1 * 128] = [1024, 128]
+        # Wv: [1024, 1 * 128] = [1024, 128]
         self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias)
         self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
         self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
