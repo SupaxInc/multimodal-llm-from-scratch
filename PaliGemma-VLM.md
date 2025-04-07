@@ -22,7 +22,8 @@
           - [How SigLIP Works](#how-siglip-works)
         - [Example of SigLIP Processing](#example-of-siglip-processing)
     - [Vision Transformers (general)](#vision-transformers-general)
-      - [Actual SigLip Encoder Diagram](#actual-siglip-encoder-diagram)
+    - [Actual SigLip Encoder Diagram](#actual-siglip-encoder-diagram)
+      - [Multi-Head Attention (SigLip)](#multi-head-attention-siglip)
   - [2) Input Processor \& Linear Projection](#2-input-processor--linear-projection)
     - [Input Processing Overview](#input-processing-overview)
       - [Step 1: Image Processing](#step-1-image-processing)
@@ -799,7 +800,7 @@ This process allows the model to:
 
 ---
 
-#### Actual SigLip Encoder Diagram
+### Actual SigLip Encoder Diagram
 
 ![siglip-encoder](resources/siglip-encoder.png)
 
@@ -829,7 +830,7 @@ The SigLIP encoder diagram shows the detailed architecture of the vision encoder
    - Helps stabilize training by normalizing activations
    - Prevents internal covariate shift
 
-4. **Self-Attention**
+4. **Self-Attention (Multi-Head)**
    - Allows each patch to attend to all other patches
    - Computes attention scores between patches
    - Helps build global understanding of image
@@ -887,6 +888,19 @@ The SigLIP encoder diagram shows the detailed architecture of the vision encoder
    - Heavy use of residual connections
 
 The key innovation in SigLIP is not in this encoder structure (which follows standard transformer design), but rather in how the embeddings it produces are used in the contrastive learning setup with sigmoid loss.
+
+#### Multi-Head Attention (SigLip)
+
+SigLip's vision encoder employs multi-head attention to create contextual representations of image patches. In this implementation:
+
+- Multiple attention heads (typically 8-16) work in parallel to process image patches
+- Each head focuses on different aspects of visual relationships between patches
+- Unlike language models, SigLip uses bidirectional attention where each patch can attend to all other patches
+- This enables the model to capture global visual context and spatial relationships
+- The architecture follows the standard transformer pattern with query, key, and value projections
+- Each attention head operates in a lower-dimensional space (typically 64-128 dimensions)
+
+This mechanism is essential for the encoder to understand complex visual structures and relationships between different regions of an image. For a comprehensive explanation of how multi-head attention works, see the [Multi-Head Attention](#multi-head-attention) section.
 
 <br>
 
