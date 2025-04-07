@@ -5,6 +5,45 @@ from torch.nn import CrossEntropyLoss
 import math
 from modeling_siglip import SiglipVisionConfig, SiglipVisionModel
 
+def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
+class KVCache():
+    def __init__(self):
+        self.key_cache: List[torch.Tensor] = []
+        self.value_cache: List[torch.Tensor] = []
+
+    def num_items(self):
+        if len(self.key_cache) == 0:
+            return 0
+        else:
+            # Shape of the key_cache is [B, num_heads_kv, seq_len, head_dim]
+            return self.key_cache[0].shape[-2]
+    
+    def update(
+        self,
+        key_states: torch.Tensor,
+        value_states: torch.Tensor,
+        layer_idx: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        if len(self.key_cache) <= layer_idx:
+            # If key cache is empty for the layer, create it
+            self.key_cache.append(key_states)
+            self.value_cache.append(value_states)
+        else:
+            # If key cache exists for the layer, concatenate it with an existing layer and states
+            # [B, num_heads_kv, seq_len, head_dim]
+            self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], key_states], dim=-2)
+            self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], value_states], dim=-2)
+
+        # Return all existing and new keys/values for the current layer
+        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
+
 # * Language Model (Gemma) config *
 class GemmaConfig():
     """Configuration class for the Gemma language model.
@@ -155,6 +194,7 @@ class GemmaMLP(nn.Module):
             # z = self.down_proj(z)                  [B, seq_len, intermediate_size] -> [B, seq_len, hidden_size]
         return self.down_proj(nn.functional.gelu(self.gate_proj(x), approximate="tanh") * self.up_proj(x))
 
+# * Grouped Query Attention *
 class GemmaAttention(nn.Module):
     def __init__(self, config: GemmaConfig, layer_idx: Optional[int] = None):
         super().__init__()
@@ -176,18 +216,111 @@ class GemmaAttention(nn.Module):
             # Each head has to watch a part of the embedding of the entire token so it must be divisible
         assert self.hidden_size % self.num_heads == 0
 
-        # Grouped Query Attention
-        # Difference with GQA is that we have less heads for keys and values which results in smaller projection for embeddings in keys and values
+        # * Grouped Query Attention *
+        # Difference with GQA than MHA is that we have less heads for keys and values 
+        # which results in smaller projection for embeddings in keys and values
         # Number of heads = 8
-        # Hidden_size = 1024
+        # Hidden_size = 1024 (# of dimensions for token)
         # Head_dim = 1024 / 8 = 128
+
+        # In the example below, KV only has 2 heads which is shared by two groups of query heads (8/2 = 4)
         # Wq: [1024, 8 * 128] = [1024, 1024]
-        # Wk: [1024, 1 * 128] = [1024, 128]
-        # Wv: [1024, 1 * 128] = [1024, 128]
+        # Wk: [1024, 2 * 128] = [1024, 256]
+        # Wv: [1024, 2 * 128] = [1024, 256]
         self.q_proj = nn.Linear(self.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias)
         self.k_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
         self.v_proj = nn.Linear(self.hidden_size, self.num_key_value_heads * self.head_dim, bias=config.attention_bias)
         self.o_proj = nn.Linear(self.num_heads * self.head_dim, self.hidden_size, bias=config.attention_bias)
+        
+        self.rotary_emb = GemmaRotaryEmbedding(
+            self.head_dim,
+            max_position_embeddings=self.max_position_embeddings,
+            base=self.rope_theta,
+        )
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        kv_cache: Optional[KVCache] = None,
+        **kwargs,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tesor], Optional[Tuple[torch.Tensor]]]:
+        # [B, seq_len, hidden_size]
+        bsz, q_len, _ = hidden_states.size()
+
+        # Convert query sequence into query, key and values
+        # [B, seq_len, num_heads_kv * head_dim]
+        query_states = self.q_proj(hidden_states)
+        # [B, seq_len, num_heads_kv * head_dim]
+        key_states = self.k_proj(hidden_states)
+        # [B, seq_len, num_heads_kv * head_dim]
+        value_states = self.v_proj(hidden_states)
+
+        # Split the embeddings into groups of dimensions based on how many heads for QKV
+        # [B, num_heads_q, seq_len, head_dim], each query will have num heads with a size of head_dim dimensions
+        query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
+        # [B, num_heads_kv, seq_len, head_dim], key will have number of kv heads as groups with size of head dim
+        key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1,2)
+        # [B, num_heads_q, seq_len, head_dim], value will have number of kv heads as groups with size of head dim
+        value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1,2)
+        # Computation returns a sequence of tokens where each token is made up of groups managing head dim dimensions
+            # Check the Multi Head Attention topic in PaliGemma-VLM.md
+        
+        # Apply rotary positional encodings
+        # [B, seq_len, head_dim], [B, seq_len, head_dim]
+        cos, sin = self.rotary_emb(value_states, position_ids, seq_len=None)
+        # [B, num_heads_q, seq_len, head_dim], [B, num_heads_kv, seq_len, head_dim]
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
+        if kv_cache is not None:
+            # Update does the following: 
+                # Take the single token of key states and add it to the key cache
+                # Similarly, add single token of value state and add it to the value cache
+            # After, retrieve all the tokens of the cache as output (all previous tokens + current token)
+            key_states, value_states = kv_cache.update(key_states, value_states, self.layer_idx)
+
+        # Repeat the key and values to match the number of heads of the query
+            # It now has the same numbers of heads as the query
+        key_states = repeat_kv(key_states, self.num_key_value_groups)
+        value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+        # Perform the calculation as usual, Q * K^T / sqrt(head_dim)
+        # [B, num_heads_q, seq_len_q, seq_len_kv]
+        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+        # attention mask will always be made of zeros because we don't have paddings
+            # In prefilling, we dont mask anything since we allow the prompt to attend to future tokens (PaliGemma decision)
+        assert attention_mask is not None
+        attn_weights = attn_weights + attention_mask
+
+        # Apply the softmax
+        # [B, num_heads_q, seq_len_q, seq_len_kv]
+        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        # Apply the dropout
+        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+        # Multiply by the values
+        # [B, num_heads_q, seq_len_q, seq_len_kq] x [B, num_heads_kv, seq_len_kv, head_dim] -> 
+        attn_output = torch.matmul(attn_weights, value_states)
+
+        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+            raise ValueError(
+                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+                f" {attn_output.size()}"
+            )
+        
+        # Make sure seq length is the second dimension
+        # [B, num_heads_q, seq_len_q, head_dim] -> [B, seq_len_q, num_heads]
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        # Concatenate all the heads together
+        # [b, seq_len_q, num_heads_q, head_dim] -> [B, seq_len_q, num_heads_q * head_dim]
+        attn_output = attn_output.view(bsz, q_len, -1)
+
+        # Multiply by W_o
+        # [B, seq_len_q, hidden_size]
+        attn_output = self.o_proj(attn_output)
+
+        return attn_output, attn_weights
 
 # * Transformer layers for Gemma model consisting of attention, FFN, and RMS normalization *
 class GemmaDecoderLayer(nn.Module):
