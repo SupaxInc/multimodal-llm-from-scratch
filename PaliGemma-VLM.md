@@ -43,6 +43,7 @@
     - [Attention Mechanisms](#attention-mechanisms)
       - [Multi-Head Attention (Gemma)](#multi-head-attention-gemma)
       - [Grouped-Query Attention (Gemma)](#grouped-query-attention-gemma)
+        - [Multi-Query Attention (not Gemma)](#multi-query-attention-not-gemma)
     - [KV Cache](#kv-cache)
       - [The Problem: Inefficient Inference in Transformers](#the-problem-inefficient-inference-in-transformers)
         - [How Transformers Work During Training](#how-transformers-work-during-training)
@@ -1383,6 +1384,14 @@ GQA fundamentally changes the memory transfer pattern:
    - Once Key Head 1 is loaded into local memory, it's reused by Query Heads 1-4
    - This makes the process 4x more memory-efficient in this example
 
+4. Reduced KV Cache Memory Requirements:
+   - In addition to reducing memory transfers, GQA significantly reduces the total memory needed for the KV cache
+   - With standard MHA, we need to store 8 key heads and 8 value heads for every token in the sequence
+   - With GQA using 2 key/value heads, we only need to store 2 key heads and 2 value heads per token
+   - This represents a 4x reduction in KV cache memory footprint
+   - For long context models, this memory saving is crucial for handling extended sequences
+   - It allows models to process longer contexts with the same hardware constraints
+
 This diagram illustrates the data sharing in GQA:
 ```
 Standard MHA:              Grouped-Query Attention (GQA):
@@ -1411,6 +1420,35 @@ In practice, Gemma uses GQA as a carefully calibrated trade-off:
 - The grouping ratio (e.g., 4:1 or 2:1) is tuned to balance performance and efficiency
 
 By addressing the true bottleneck in inference (memory bandwidth rather than computation), GQA enables significantly faster text generation while maintaining output quality.
+
+##### Multi-Query Attention (not Gemma)
+
+![mha-gqa-mq](resources/mha-gqa-mq.png)
+
+Multi-Query Attention (MQA) represents another optimization approach that takes the concept of GQA to its extreme:
+
+1. **Maximum Key/Value Sharing**:
+   - While GQA has multiple query heads sharing a smaller number of key/value heads
+   - MQA uses just a **single key/value head** shared across all query heads
+   - This is the most extreme form of parameter sharing
+
+2. **Comparison with Other Approaches**:
+   - **Standard MHA**: 8 query heads, 8 key heads, 8 value heads (1:1:1 ratio)
+   - **GQA**: 8 query heads, 2 key heads, 2 value heads (4:1:1 ratio)
+   - **MQA**: 8 query heads, 1 key head, 1 value head (8:1:1 ratio)
+
+3. **Trade-offs**:
+   - **Pros**: Maximum memory bandwidth efficiency (only one key/value transfer needed)
+   - **Cons**: Most significant reduction in model expressivity
+   - The single key/value representation must capture all relevant information for all query heads
+
+4. **Why Gemma Uses GQA Instead**:
+   - MQA's extreme parameter sharing can lead to quality degradation
+   - GQA offers a better balance between efficiency and model quality
+   - Gemma's designers found that some key/value diversity was important for maintaining performance
+
+As shown in the diagram, MQA represents the most aggressive optimization for inference speed, but at a potentially higher cost to model quality. This is why Gemma opts for the more balanced GQA approach, which preserves more of the model's representational capacity while still achieving significant efficiency gains.
+
 
 <br>
 
