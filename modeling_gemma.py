@@ -265,7 +265,7 @@ class GemmaAttention(nn.Module):
         # [B, num_heads_q, seq_len, head_dim], value will have number of kv heads as groups with size of head dim
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1,2)
         # Computation returns a sequence of tokens where each token is made up of groups managing head dim dimensions
-            # Check the Multi Head Attention topic in PaliGemma-VLM.md
+            # Check the Multi Head Attention topic in docs/PaliGemma-VLM.md
         
         # Apply rotary positional encodings
         # [B, seq_len, head_dim], [B, seq_len, head_dim]

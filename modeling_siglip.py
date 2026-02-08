@@ -152,7 +152,7 @@ class SiglipVisionEmbeddings(nn.Module):
 class SiglipAttention(nn.Module):
     """Multi-headed attention mechanism that processes input sequences in parallel through multiple attention heads.
     
-    This implements the complete multi-head attention process as described in resources/PaliGemma-VLM.md:
+    This implements the complete multi-head attention process as described in docs/PaliGemma-VLM.md:
     
     Step 1: Transform input sequence X into Q, K, V matrices
     - Input sequence is transformed through learned parameter matrices Wq, Wk, Wv
@@ -199,7 +199,7 @@ class SiglipAttention(nn.Module):
         
         Args:
             hidden_states: Input sequence [batch_size, seq_len, embed_dim]
-                         For our example: [B, 4, 1024] from resources/PaliGemma-VLM.md
+                         For our example: [B, 4, 1024] from docs/PaliGemma-VLM.md
             
         Returns:
             attn_output: Processed sequence with same shape as input
